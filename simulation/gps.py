@@ -2,9 +2,16 @@ import socket
 import time
 import threading
 import random
+import json
 
 PORT = 8080
 HOST = '127.0.0.1'
+
+def json_to_string(data):
+  s = ""
+  for key, value in data.items():
+    s += f"${key}:${value};"
+  return s
 
 def send():
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # TCP
@@ -15,8 +22,13 @@ def send():
     while True:
       busnum = random.randint(1,10)
       x = random.randint(0,100)
-      data = f"b${busnum}x${x}"
-      s.sendall(data.encode("utf-8"))
+      y = random.randint(0,100)
+      data = {
+        "vehicle": f"b${busnum}",
+        "position": f"${x}, ${y}",
+        "timestamp": time.time()
+      }
+      s.sendall(json_to_string(data).encode("utf-8"))
       time.sleep(1)
       
   except():
