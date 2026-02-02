@@ -110,7 +110,6 @@ bool Database::insertGPSData(GPSData &data) {
         return false;
     }
     
-    std::cout << "insertGPSData called (not yet implemented)" << std::endl;
     return true;
 }
 
@@ -120,6 +119,5 @@ bool Database::insertSensorData(SensorData &data) {
         return false;
     }
     
-    std::cout << "insertSensorData called (not yet implemented)" << std::endl;
     return true;
 }
