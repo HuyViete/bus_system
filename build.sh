@@ -1,2 +1,2 @@
-cd Bus && g++ -o bus bus.cpp receiver.cpp sender.cpp database.cpp -L. -lsqlite3 -lws2_32
+cd Bus && g++ -o bus main.cpp bus.cpp receiver.cpp sender.cpp database.cpp gps.cpp -L. -lsqlite3 -lws2_32
 ./bus

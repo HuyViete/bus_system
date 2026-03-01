@@ -5,24 +5,7 @@
 #include <string>
 #include <thread>
 #include <winsock2.h>
-
-struct GPSData {
-    std::string vehicle_id;
-    int route;
-    double latitude;
-    double longitude;
-    double speed;
-    double heading;
-    int timestamp;
-    int synced;
-};
-
-struct SensorData {
-    std::string vehicle_id;
-    int passenger_count;
-    int timestamp;
-    int synced;
-};
+#include "types.h"
 
 class Sender {
 public:
@@ -33,6 +16,8 @@ public:
 
     void sendGPSData(GPSData &data);
     void sendSensorData(SensorData &data);
+
+    void sendEstimatedTime(int station);
 private:
     SOCKET clientSocket;
     bool running;

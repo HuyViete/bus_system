@@ -1,13 +1,31 @@
-#include <iostream>
-#include "receiver.h"
-#include "sender.h"
+#include "bus.h"
+#include <thread>
 
-int main() {
-    Receiver receiver;
-    receiver.startServer(8080);
+Bus::Bus(int vehicle_id, int route, int current_station) 
+    : vehicle_id(vehicle_id), route(route), current_station(current_station), db(), receiver(), sender(), gps() {
+        start();
+}
 
-    Sender sender;
-    sender.start();
+Bus::~Bus() {
+    stop();
+}
 
-    return 0;
+void Bus::start() {
+    db.open();
+    
+    std::thread receiverThread(&Receiver::startServer, &receiver, 8080);
+    receiverThread.detach();
+
+    std::thread senderThread(&Sender::start, &sender);
+    senderThread.detach();
+
+    std::thread gpsThread(&GPS::start, &gps);
+    gpsThread.detach();
+}
+
+void Bus::stop() {
+    receiver.stop();
+    sender.stop();
+    db.close();
+    gps.stop();
 }

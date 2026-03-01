@@ -13,7 +13,7 @@ bool Database::open() {
         return true;
     }
 
-    int exit = sqlite3_open("example.db", &DB);
+    int exit = sqlite3_open("database.db", &DB);
     
     if (exit != SQLITE_OK) {
         std::cerr << "Error opening DB: " << sqlite3_errmsg(DB) << std::endl;

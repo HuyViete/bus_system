@@ -5,24 +5,7 @@
 #include <iostream>
 #include <string>
 #include <cstdint>
-
-struct GPSData {
-    std::string vehicleId;
-    double latitude;
-    double longitude;
-    double speed;
-    double heading;
-    int64_t timestamp;
-    bool synced;
-};
-struct SensorData {
-    std::string vehicleId;
-    int passengerCount;
-    double temperature;
-    double fuelLevel;
-    int64_t timestamp;
-    bool synced;
-};
+#include "types.h"
 
 class Database {
 public:
