@@ -2,10 +2,12 @@
 #define BUS_H
 
 #include <iostream>
+#include <vector>
 #include "receiver.h"
 #include "sender.h"
 #include "database.h"
-#include "gps.h"    
+#include "gps.h"
+#include "route_loader.h"
 
 class Bus {
 private:
@@ -18,7 +20,10 @@ private:
     Sender sender;
     GPS gps;
 public:
-    Bus(int vehicle_id, int route, int current_station);
+    // waypoints   : the ordered GPS path for this route (from routes.csv)
+    // start_index : which waypoint this bus starts from (spread across route)
+    Bus(int vehicle_id, int route, int current_station,
+        const std::vector<Waypoint>& waypoints, int start_index);
     ~Bus();
 
     void start();

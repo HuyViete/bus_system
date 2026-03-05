@@ -1,8 +1,11 @@
 #include "bus.h"
 #include <thread>
 
-Bus::Bus(int vehicle_id, int route, int current_station) 
-    : vehicle_id(vehicle_id), route(route), current_station(current_station), db(), receiver(), sender(), gps() {
+Bus::Bus(int vehicle_id, int route, int current_station,
+         const std::vector<Waypoint>& waypoints, int start_index)
+    : vehicle_id(vehicle_id), route(route), current_station(current_station),
+      db(), receiver(), sender(), gps() {
+        gps.setRoute(route, waypoints, start_index);
         start();
 }
 
