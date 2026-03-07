@@ -17,12 +17,22 @@ app.get('/', (req, res) => {
     res.send('Received!')
 })
 
-app.post('/api/gps', (req, res) => {
+app.post('/api/gps', async (req, res) => {
     console.log('Received GPS Data:', req.body)
-    const { vehicle_id, latitude, longitude, timestamp } = req.body
-    const query = 'INSERT INTO gps (vehicle_id, latitude, longitude, timestamp) VALUES ($1, $2, $3, $4)'
-    pool.query(query, [vehicle_id, latitude, longitude, timestamp])
-    res.status(200).send('GPS Data received')
+    res.status(200).send('GPS Data received')   // always respond so the bus doesn't hang
+
+    // Try to persist to PostgreSQL — if DB is offline, just log and continue.
+    const { vehicle_id, route, latitude, longitude, speed, heading, timestamp, synced } = req.body
+    const query = `
+        INSERT INTO gps (vehicle_id, route, latitude, longitude, speed, heading, timestamp, synced)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `
+    try {
+        await pool.query(query, [vehicle_id, route, latitude, longitude, speed, heading, timestamp, synced ?? 0])
+        console.log(`[DB] Saved GPS for ${vehicle_id}`)
+    } catch (err) {
+        console.warn(`[DB] PostgreSQL unavailable — data logged but not persisted: ${err.message}`)
+    }
 })
 
 app.post('/api/sensor', (req, res) => {
