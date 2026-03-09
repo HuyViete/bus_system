@@ -10,10 +10,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@deck.gl/layers": "^9.2.11",
+    "@deck.gl/react": "^9.2.11",
     "@tailwindcss/vite": "^4.2.1",
     "axios": "^1.13.5",
+    "deck.gl": "^9.2.11",
+    "maplibre-gl": "^5.19.0",
+    "pmtiles": "^4.4.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-map-gl": "^8.1.0",
     "react-router-dom": "^7.13.1",
     "sonner": "^2.0.7",
     "tailwindcss": "^4.2.1",

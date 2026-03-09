@@ -1,15 +1,30 @@
-import React from 'react'
-import { useNavigate } from 'react-router-dom'
+import React, { useState } from 'react'
 
+import App from '../components/App'
 import Taskbar from '../components/Taskbar'
-import Map from '../components/App'
+import Navbar from '../components/Navbar'
+import SearchBar from '../components/SearchBar'
+import SettingPanel from '../components/SettingPanel'
 
 const Home = () => {
-  const navigate = useNavigate()
+  const [isSettingOpen, setIsSettingOpen] = useState(false)
+
   return (
     <>
+      {/* Full-screen map base layer */}
+      <App />
+
+      {/* Floating overlays */}
       <Taskbar />
-      <Map />
+      <Navbar
+        isSettingOpen={isSettingOpen}
+        onSettingToggle={() => setIsSettingOpen(prev => !prev)}
+      />
+      <SearchBar />
+      <SettingPanel
+        isOpen={isSettingOpen}
+        onClose={() => setIsSettingOpen(false)}
+      />
     </>
   )
 }

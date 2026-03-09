@@ -1,12 +1,10 @@
 import React from 'react'
-import Navbar from './Navbar'
-import Map from './Map'
+import BusMap from './BusMap'
 
 const App = () => {
     return (
-        <div className='h-screen w-screen'>
-            <Navbar />
-            <Map />
+        <div className='relative w-screen h-screen overflow-hidden'>
+            <BusMap />
         </div>
     )
 }
