@@ -15,13 +15,26 @@
 -> Total: 700 + 140 = **840 message / second**
 -> So the system must be able to handle at least **1000 requests / second**
 
-***ARCHITECTURE***
+***ARCHITECTURE & TECHNOLOGY***
 - Bus (edge): C++
-- Server: NodeJS (Express / Fastify + Kafka + MongoDB)
-- Website: Nodejs (Express + ReactJs + TailwindCss)
+
+- Server: NodeJS (Express / Fastify + Kafka), PostgreSQL
+    + 
+
+- Website: Nodejs (Express + ReactJs + TailwindCss), MongoDB
+    + Axios, Zustand, JWT
+
 - Simulation: Python
 
+
+***WEBSITE***
 ***GPS DATA***
+I. Overview
 - 150 routes
 - ~ 10000 points / route
-- Thanks to OpenStreetMap API, we can fetch GPS data of **86 routes** to CSV file (~3MB)
+- Thanks to OpenStreetMap API, we can fetch GPS data of **340 routes** and **5,500 stations** to CSV files
+
+II. Map system
+- Use **MapLibre GL JS** to handle the base map with roads, buildings, water system,...
+- Use **Deck.gl** to render thousands of components (2100 buses, 300 routes, 5500 stations) every GPU call.
+- 
