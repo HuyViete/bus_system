@@ -1,0 +1,31 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#00000055"/>
+    </filter>
+  </defs>
+
+  <!-- Outer white ring -->
+  <circle cx="64" cy="64" r="54" fill="white" filter="url(#shadow)"/>
+
+  <!-- Colored fill -->
+  <circle cx="64" cy="64" r="46" fill="#F4A623"/>
+
+  <!-- Bus icon (white) centered -->
+  <!-- Bus body -->
+  <rect x="34" y="42" width="60" height="40" rx="8" fill="white"/>
+  <!-- Windshield divider -->
+  <rect x="34" y="57" width="60" height="3" fill="#F4A623"/>
+  <!-- Left window -->
+  <rect x="40" y="46" width="16" height="10" rx="3" fill="#F4A623"/>
+  <!-- Right window -->
+  <rect x="72" y="46" width="16" height="10" rx="3" fill="#F4A623"/>
+  <!-- Bus undercarriage -->
+  <rect x="40" y="82" width="48" height="6" rx="3" fill="white"/>
+  <!-- Left wheel -->
+  <circle cx="47" cy="90" r="8" fill="white"/>
+  <circle cx="47" cy="90" r="4" fill="#F4A623"/>
+  <!-- Right wheel -->
+  <circle cx="81" cy="90" r="8" fill="white"/>
+  <circle cx="81" cy="90" r="4" fill="#F4A623"/>
+</svg>
