@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { useLiveBuses } from '../hooks/useLiveBuses';
 import DeckGL from '@deck.gl/react';
 import { PathLayer, IconLayer, ScatterplotLayer } from '@deck.gl/layers';
 import Map from 'react-map-gl/maplibre';
@@ -112,7 +113,7 @@ const BusMap = ({
     onRouteSelectionChange,
 }) => {
     const [routes, setRoutes] = useState([]);
-    const [buses, setBuses] = useState([]);   // Ready for real-time data (API/WebSocket)
+    const { buses, isConnected, busCount } = useLiveBuses();  // ← live polling
     const [stations, setStations] = useState([]);
     // selectedRouteIds: null = show all | Set<string> = show only those IDs
     // Controlled externally via props if a route-picker panel is connected,
@@ -331,9 +332,21 @@ const BusMap = ({
                     mapStyle={MAP_STYLE}
                 />
             </DeckGL>
+
+            {/* Set-location button */}
             <button className='absolute bottom-4 right-4 z-50 size-8 cursor-pointer' onClick={handleSetLocation}>
                 <img src="/setlocation.svg" alt="" />
             </button>
+
+            {/* Live connection status badge */}
+            <div className={`absolute bottom-4 left-4 z-50 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium shadow ${
+                isConnected ? 'bg-green-500/90 text-white' : 'bg-red-500/90 text-white'
+            }`}>
+                <span className={`size-1.5 rounded-full ${
+                    isConnected ? 'bg-white animate-pulse' : 'bg-white'
+                }`} />
+                {isConnected ? `${busCount} buses live` : 'Offline'}
+            </div>
         </div>
     );
 };
