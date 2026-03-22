@@ -2,75 +2,93 @@
 #include <thread>
 #include <vector>
 #include <memory>
+#include <string>
+#include <sstream>
+#include <mutex>
 #include "bus.h"
 #include "route_loader.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Server connection settings
-//  Change these if your Node.js / big-server runs on a different host or port.
 // ─────────────────────────────────────────────────────────────────────────────
 static constexpr const char* SERVER_HOST = "127.0.0.1";
-static constexpr int DATA_PORT  = 3000;   // Sender → server's HTTP / data port
-static constexpr int CMD_PORT   = 4000;   // Receiver ← server's command port
+static constexpr int DATA_PORT  = 3000;
+static constexpr int CMD_PORT   = 4000;
 
-// Number of buses spawned per route.
-static constexpr int BUSES_PER_ROUTE = 2;
+// Global list of active buses and a mutex to protect it
+std::vector<std::unique_ptr<Bus>> active_buses;
+std::mutex buses_mutex;
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  spawnBusesForRoute
-//  Creates BUSES_PER_ROUTE Bus objects, each starting at an evenly-spaced
-//  waypoint so they are spread across the full length of the route.
-//
-//  CONCEPT — std::unique_ptr<Bus>
-//  We heap-allocate (new) each Bus because:
-//    1. Bus objects are large and contain threads — they must NOT be copied.
-//       Putting them in a vector<Bus> would try to copy them (compile error).
-//    2. unique_ptr<Bus> gives us heap allocation while still following RAII:
-//       when the vector is destroyed, every unique_ptr destructor runs Bus::~Bus()
-//       automatically — no manual delete needed.
+// spanwBus: Creates a new bus and adds it to the active_buses list
 // ─────────────────────────────────────────────────────────────────────────────
-void spawnBusesForRoute(int route_id,
-                        const std::vector<Waypoint>& waypoints,
-                        std::vector<std::unique_ptr<Bus>>& buses)
-{
-    int total = (int)waypoints.size();
-    if (total == 0) {
-        std::cout << "[Spawn] Route " << route_id << " has no waypoints — skipped.\n";
+void spawnBus(int bus_id, int route_id, int start_waypoint, RouteMap& routes) {
+    auto it = routes.find(route_id);
+    if (it == routes.end()) {
+        std::cerr << "Route " << route_id << " not found!\n";
+        return;
+    }
+    
+    const auto& waypoints = it->second;
+    if (waypoints.empty()) {
+        std::cerr << "Route " << route_id << " has no waypoints!\n";
         return;
     }
 
-    int step = std::max(1, total / BUSES_PER_ROUTE);
+    if (start_waypoint < 0 || start_waypoint >= (int)waypoints.size()) {
+        std::cerr << "Invalid waypoint " << start_waypoint << " for route " << route_id 
+                  << " (max " << waypoints.size() - 1 << "). Defaulting to 0.\n";
+        start_waypoint = 0;
+    }
 
-    for (int i = 0; i < BUSES_PER_ROUTE; i++) {
-        int vehicle_id  = route_id * 1000 + i;
-        int start_index = (step * i) % total;
+    std::cout << "[Spawn] Bus ID " << bus_id << " on Route " << route_id 
+              << " starting at waypoint " << start_waypoint << ".\n";
 
-        std::cout << "[Spawn] Route " << route_id
-                  << " | Bus #" << i
-                  << " | vehicle_id=" << vehicle_id
-                  << " | start waypoint=" << start_index << "/" << (total - 1)
-                  << "\n";
+    std::lock_guard<std::mutex> lock(buses_mutex);
+    active_buses.push_back(std::make_unique<Bus>(
+        bus_id,
+        route_id,
+        waypoints,
+        start_waypoint,
+        SERVER_HOST,
+        DATA_PORT,
+        CMD_PORT
+    ));
+}
 
-        // std::make_unique<Bus>(...) is the preferred way to create unique_ptrs.
-        // It is exception-safe: if the Bus constructor throws, the memory is
-        // freed automatically.
-        buses.push_back(std::make_unique<Bus>(
-            vehicle_id,
-            route_id,
-            waypoints,
-            start_index,
-            SERVER_HOST,
-            DATA_PORT,
-            CMD_PORT
-        ));
+// ─────────────────────────────────────────────────────────────────────────────
+// interactiveMode: Keeps reading commands from standard input
+// ─────────────────────────────────────────────────────────────────────────────
+void interactiveMode(RouteMap& routes) {
+    std::cout << "\n=== Interactive Manager Mode ===\n";
+    std::cout << "Type commands in the format: <bus_id> <route_id> [start_waypoint]\n";
+    std::cout << "Example: 2003 2      (Spawns bus 2003 on route 2 at waypoint 0)\n";
+    std::cout << "Example: 4007 4 15   (Spawns bus 4007 on route 4 at waypoint 15)\n";
+    std::cout << "Type 'exit' or 'quit' to shut down.\n\n> ";
+
+    std::string line;
+    while (std::getline(std::cin, line)) {
+        if (line == "exit" || line == "quit") break;
+        if (line.empty()) { 
+            std::cout << "> "; 
+            continue; 
+        }
+
+        std::stringstream ss(line);
+        int bus_id, route_id;
+        int start_waypoint = 0; // default value
+
+        if (ss >> bus_id >> route_id) {
+            ss >> start_waypoint; // read optional waypoint if provided
+            spawnBus(bus_id, route_id, start_waypoint, routes);
+        } else {
+            std::cout << "Invalid format. Use: <bus_id> <route_id> [start_waypoint]\n";
+        }
+        std::cout << "> ";
     }
 }
 
-int main() {
-    std::cout << "=== Bus System Starting ===\n";
-    std::cout << "  Data port : " << DATA_PORT << "\n";
-    std::cout << "  Cmd  port : " << CMD_PORT  << "\n\n";
-
+int main(int argc, char* argv[]) {
     // ── 1. Load all routes ────────────────────────────────────────────────────
     RouteMap routes = loadRoutes("routes.csv");
     if (routes.empty()) {
@@ -78,26 +96,36 @@ int main() {
         return 1;
     }
 
-    // ── 2. Spawn buses ────────────────────────────────────────────────────────
-    std::vector<std::unique_ptr<Bus>> buses;
-    buses.reserve(routes.size() * BUSES_PER_ROUTE);
+    // ── 2. Determine mode based on arguments ──────────────────────────────────
+    if (argc > 1) {
+        // SINGLE BUS MODE (Command-line arguments provided)
+        if (argc < 3) {
+            std::cerr << "Usage: " << argv[0] << " <bus_id> <route_id> [start_waypoint]\n";
+            return 1;
+        }
+        
+        int bus_id = std::stoi(argv[1]);
+        int route_id = std::stoi(argv[2]);
+        int start_waypoint = 0;
+        if (argc > 3) {
+            start_waypoint = std::stoi(argv[3]);
+        }
 
-    for (const auto& [route_id, waypoints] : routes) {
-        spawnBusesForRoute(route_id, waypoints, buses);
+        spawnBus(bus_id, route_id, start_waypoint, routes);
+
+        // Block until the user presses Enter
+        std::cout << "\nBus is running. Press Enter to stop.\n";
+        std::cin.get();
+        
+    } else {
+        // MULTI-BUS MANAGER MODE (No arguments provided)
+        interactiveMode(routes);
     }
 
-    std::cout << "\n=== " << buses.size() << " buses running across "
-              << routes.size() << " routes. Press Enter to stop. ===\n";
-
-    // ── 3. Block until the user presses Enter ─────────────────────────────────
-    std::cin.get();
-
-    // ── 4. Stop all buses ─────────────────────────────────────────────────────
-    //  Walking the vector and calling stop() triggers Bus::~Bus() explicitly.
-    //  unique_ptr would also call the destructor when the vector goes out of
-    //  scope, but doing it explicitly here gives us a clear shutdown log.
+    // ── 3. Stop all buses cleanly ─────────────────────────────────────────────
     std::cout << "Stopping all buses...\n";
-    for (auto& bus : buses) {
+    std::lock_guard<std::mutex> lock(buses_mutex);
+    for (auto& bus : active_buses) {
         bus->stop();
     }
 

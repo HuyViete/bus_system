@@ -1,6 +1,6 @@
 import express from 'express'
 import dotenv from 'dotenv'
-import pool from './db.js'
+import pool from './libs/db.js'
 
 dotenv.config()
 
@@ -25,7 +25,7 @@ app.post('/api/gps', async (req, res) => {
     const { vehicle_id, route, latitude, longitude, speed, heading, timestamp, synced } = req.body
     const query = `
         INSERT INTO gps (vehicle_id, route, latitude, longitude, speed, heading, timestamp, synced)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7), $8)
     `
     try {
         await pool.query(query, [vehicle_id, route, latitude, longitude, speed, heading, timestamp, synced ?? 0])

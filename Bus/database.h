@@ -13,15 +13,16 @@ public:
   ~Database();
   void createTable(std::string name);
 
-  bool open();
+  bool open(const std::string& vehicle_id); // Opens (or creates) <vehicle_id>.db
   void close();
   bool isOpen();
 
-  bool insertGPSData(GPSData &data);
-  bool insertSensorData(SensorData &data);
+  bool insertGPSData(const GPSData& data);
+  bool insertSensorData(const SensorData& data);
 
 private:
-  sqlite3* DB;
+  sqlite3*    DB;
+  std::string db_path_;  // e.g. "BUS-2003.db"
 
 };
 

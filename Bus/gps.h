@@ -11,6 +11,8 @@
 
 // Forward-declare Sender so GPS can call it without a circular include.
 class Sender;
+// Forward-declare Database for the same reason.
+class Database;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  GPS
@@ -25,12 +27,14 @@ public:
     GPS();
     ~GPS();
 
-    // Inject the route data and a reference to the Sender so GPS can push data.
+    // Inject the route data, a reference to the Sender (for transmission),
+    // and a reference to the Database (for local offline buffering).
     // Must be called BEFORE start().
     void setRoute(int route_id,
                   const std::vector<Waypoint>& waypoints,
                   int start_index,
-                  Sender& sender);   // ← GPS needs a Sender to push data to
+                  Sender&   sender,    // ← push data to server
+                  Database& db);       // ← store data locally first
 
     // Blocking loop: advances waypoints, calls sender.enqueueGPS() every second.
     // Meant to be run on a dedicated std::thread.
@@ -55,8 +59,9 @@ private:
 
     std::string           vehicle_id_str_;
 
-    // Non-owning pointer to the Sender — GPS doesn't manage the Sender's lifetime.
-    Sender*               sender_;
+    // Non-owning pointers — GPS doesn't manage the lifetimes of these objects.
+    Sender*   sender_;   // transmit to server
+    Database* db_;       // buffer locally
 
     GPSData buildSnapshot();
 };

@@ -8,8 +8,8 @@ const REFRESH_TOKEN_TTL = 14 * 24 * 3600 * 1000;
 
 export const signUp = async (req, res) => {
     try {
-        const { username, email, password } = req.body;
-        if (!username || !email || !password) {
+        const { username, email, password, firstname, lastname } = req.body;
+        if (!username || !email || !password || !firstname || !lastname) {
             return res.status(400).json({ message: "All fields are required" });
         }
 
@@ -19,11 +19,13 @@ export const signUp = async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
+        const displayName = `${firstname} ${lastname}`;
 
         const user = await User.create({
             username,
             email,
-            hashedPassword
+            hashedPassword,
+            displayName
         });
 
         return res.sendStatus(204);

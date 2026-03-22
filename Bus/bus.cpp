@@ -63,7 +63,10 @@ void Bus::start(const std::string& host,
     std::cout << "[Bus " << vehicle_id_ << "] Starting on route " << route_id_ << "\n";
 
     // ── 1. Open local database for offline buffering ──────────────────────────
-    db_.open();
+    //    Each bus opens its OWN file: "BUS-<vehicle_id>.db".
+    //    This avoids file-locking conflicts when multiple buses run in the
+    //    same process, and makes per-bus diagnostics trivial.
+    db_.open("BUS-" + std::to_string(vehicle_id_));
 
     // ── 2. Connect the Sender to the server's data port ──────────────────────
     //    If the server is not reachable yet, we continue anyway (the bus can
@@ -79,9 +82,11 @@ void Bus::start(const std::string& host,
         std::cerr << "[Bus " << vehicle_id_ << "] WARNING: Cannot reach command channel.\n";
     }
 
-    // ── 4. Give GPS its route data and a reference to the Sender ─────────────
-    //    From this point on GPS will call sender_.enqueueGPS() once per second.
-    gps_.setRoute(route_id_, waypoints, start_index, sender_);
+    // ── 4. Give GPS its route data, the Sender, and the Database ────────────
+    //    From this point GPS will:
+    //      • call db_.insertGPSData()   → local buffer  (every tick)
+    //      • call sender_.enqueueGPS()  → server        (every tick)
+    gps_.setRoute(route_id_, waypoints, start_index, sender_, db_);
 
     // ── 5. Launch the GPS loop on its own thread ──────────────────────────────
     //

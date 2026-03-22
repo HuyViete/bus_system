@@ -1,5 +1,6 @@
 #include "gps.h"
 #include "sender.h"
+#include "database.h"
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
@@ -22,7 +23,7 @@
 // ═════════════════════════════════════════════════════════════════════════════
 
 GPS::GPS()
-    : route_id_(0), wp_index_(0), running_(false), sender_(nullptr) {}
+    : route_id_(0), wp_index_(0), running_(false), sender_(nullptr), db_(nullptr) {}
 
 GPS::~GPS() {
     stop();
@@ -40,13 +41,15 @@ GPS::~GPS() {
 void GPS::setRoute(int rid,
                    const std::vector<Waypoint>& wps,
                    int start_index,
-                   Sender& sender)
+                   Sender&   sender,
+                   Database& db)
 {
-    route_id_      = rid;
-    waypoints_     = wps;    // copy the waypoints into this GPS object
-    wp_index_      = waypoints_.empty() ? 0 : (start_index % (int)waypoints_.size());
+    route_id_       = rid;
+    waypoints_      = wps;
+    wp_index_       = waypoints_.empty() ? 0 : (start_index % (int)waypoints_.size());
     vehicle_id_str_ = "BUS-" + std::to_string(rid);
-    sender_        = &sender; // borrow; Bus guarantees Sender outlives GPS
+    sender_         = &sender;  // borrow; Bus guarantees Sender outlives GPS
+    db_             = &db;      // borrow; Bus guarantees Database outlives GPS
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,17 +76,24 @@ void GPS::start() {
         // 1. Build a snapshot of current position.
         GPSData data = buildSnapshot();
 
-        // 2. Hand the snapshot to the Sender's thread-safe queue.
+        // 2. Write to the local SQLite buffer FIRST.
+        //    This happens even when the server is unreachable — the bus never
+        //    loses a packet. The 'synced' field starts as 0 (unacknowledged).
+        if (db_) {
+            db_->insertGPSData(data);
+        }
+
+        // 3. Hand the snapshot to the Sender's thread-safe queue.
         //    This returns IMMEDIATELY — we don't wait for the network.
         //    The Sender's worker thread handles the actual transmission.
         if (sender_) {
             sender_->enqueueGPS(data);
         }
 
-        // 3. Advance to the next waypoint (wraps around at the end of the route).
+        // 4. Advance to the next waypoint (wraps around at the end of the route).
         wp_index_ = (wp_index_ + 1) % (int)waypoints_.size();
 
-        // 4. Sleep for 1 second before the next GPS tick.
+        // 5. Sleep for 1 second before the next GPS tick.
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 }
