@@ -1,46 +1,39 @@
 import express from 'express'
 import dotenv from 'dotenv'
-import pool from './libs/db.js'
+
+import { initSchema } from './libs/initDb.js'
+import { loadStops }  from './libs/gpsProcessor.js'
+
+import gpsRoutes    from './routes/gps.js'
+import eventsRoutes from './routes/events.js'
 
 dotenv.config()
 
 const app = express()
-
-
 app.use(express.json())
 
-app.listen(process.env.PORT, () => {
-    console.log('Server is running on port ', process.env.PORT)
-})
+// ── Mount routes ──────────────────────────────────────────────────────────────
+app.use('/api/gps',    gpsRoutes)     // POST /api/gps        ← from buses
+app.use('/api/events', eventsRoutes)  // GET  /api/events/*   ← from website/dashboard
 
-app.get('/', (req, res) => {
-    res.send('Received!')
-})
+app.get('/', (_req, res) => res.json({ status: 'ok' }))
 
-app.post('/api/gps', async (req, res) => {
-    console.log('Received GPS Data:', req.body)
-    res.status(200).send('GPS Data received')   // always respond so the bus doesn't hang
+// ── Startup ───────────────────────────────────────────────────────────────────
+async function start() {
+    // Create all DB tables (idempotent — safe to run every time)
+    await initSchema()
 
-    // Try to persist to PostgreSQL — if DB is offline, just log and continue.
-    const { vehicle_id, route, latitude, longitude, speed, heading, timestamp, synced } = req.body
-    const query = `
-        INSERT INTO gps (vehicle_id, route, latitude, longitude, speed, heading, timestamp, synced)
-        VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7), $8)
-    `
-    try {
-        await pool.query(query, [vehicle_id, route, latitude, longitude, speed, heading, timestamp, synced ?? 0])
-        console.log(`[DB] Saved GPS for ${vehicle_id}`)
-    } catch (err) {
-        console.warn(`[DB] PostgreSQL unavailable — data logged but not persisted: ${err.message}`)
-    }
-})
+    // Load stop list into memory for geofence checks
+    await loadStops()
 
-app.post('/api/sensor', (req, res) => {
-    console.log('Received Sensor Data:', req.body)
-    res.status(200).send('Sensor Data received')
-})
+    app.listen(process.env.PORT, () => {
+        console.log(`[Server] Running on port ${process.env.PORT}`)
+        console.log(`[Server] GPS ingestion  → POST /api/gps`)
+        console.log(`[Server] Events query   → GET  /api/events/{live,stops,dwell,trips,speed,headway,anomalies}`)
+    })
+}
 
-app.post('/api/eta', (req, res) => {
-    console.log('Received ETA Data:', req.body)
-    res.status(200).send('ETA Data received')
+start().catch(err => {
+    console.error('[Server] Failed to start:', err.message)
+    process.exit(1)
 })
