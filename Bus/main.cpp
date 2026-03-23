@@ -33,7 +33,19 @@ struct BusEntry {
 
 std::vector<BusEntry> active_buses;
 std::mutex             buses_mutex;
-std::atomic<int>       next_bus_id{1000};   // auto-increment; first bus = 1001
+
+// Per-route bus counters: route_id → how many buses have been spawned on it.
+// Bus ID formula:  route_id * 1000 + sequence_number
+//   Route  3, bus 13  →   3013
+//   Route 11, bus  2  →  11002
+// Counter persists across multiple 'start' commands so IDs never repeat.
+std::map<int, int> route_counters;
+std::mutex         counters_mutex;
+
+int nextBusId(int route_id) {
+    std::lock_guard<std::mutex> lock(counters_mutex);
+    return route_id * 1000 + (++route_counters[route_id]);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Utilities
@@ -77,9 +89,12 @@ int safeInt(const std::map<std::string, std::string>& flags,
 // ─────────────────────────────────────────────────────────────────────────────
 //  spawnBus — creates one bus with an auto-generated ID
 //
-//  Returns the new vehicle_id on success, -1 on failure.
-//  start_waypoint: the index along the route where the bus begins.
-//  Passing -1 will default to waypoint 0.
+//  CONCEPT — Why we split the work around the mutex:
+//  The slow part is Bus construction: it opens a SQLite file AND makes 2
+//  blocking TCP connect() calls (data port + command port). Holding the mutex
+//  during that work forces every thread to queue up serially — killing
+//  parallelism. The fix: do all the slow work first, THEN acquire the lock
+//  just long enough to push_back into the vector (a few microseconds).
 // ─────────────────────────────────────────────────────────────────────────────
 int spawnBus(int route_id, int start_waypoint, RouteMap& routes) {
     auto it = routes.find(route_id);
@@ -95,17 +110,78 @@ int spawnBus(int route_id, int start_waypoint, RouteMap& routes) {
     if (start_waypoint < 0 || start_waypoint >= (int)waypoints.size())
         start_waypoint = 0;
 
-    int bus_id = ++next_bus_id;
+    // Generate ID: route_id * 1000 + per-route sequence number.
+    // Thread-safe: nextBusId() holds its own lightweight mutex.
+    int bus_id = nextBusId(route_id);
+
+    // ── SLOW: open DB + TCP connect — runs WITHOUT the mutex ─────────────────
+    // Multiple threads can be doing this concurrently, which is the whole point.
+    auto bus = std::make_unique<Bus>(bus_id, route_id, waypoints, start_waypoint,
+                                     SERVER_HOST, DATA_PORT, CMD_PORT);
+
+    // ── FAST: only the vector push_back needs the lock (~microseconds) ────────
+    {
+        std::lock_guard<std::mutex> lock(buses_mutex);
+        active_buses.push_back({ bus_id, route_id, std::move(bus) });
+    }
+
     std::cout << "[Spawn] Bus #" << bus_id << " → Route " << route_id
               << " (waypoint " << start_waypoint << ")\n";
-
-    std::lock_guard<std::mutex> lock(buses_mutex);
-    active_buses.push_back({
-        bus_id, route_id,
-        std::make_unique<Bus>(bus_id, route_id, waypoints, start_waypoint,
-                              SERVER_HOST, DATA_PORT, CMD_PORT)
-    });
     return bus_id;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  spawnParallel — fan out a work list across N hardware threads
+//
+//  `work` is a flat list of (route_id, start_waypoint) pairs — one entry
+//  per bus to spawn. The list is divided into equal slices and each slice
+//  is handed to a worker std::thread. All TCP connections therefore happen
+//  concurrently, saturating all available CPU cores.
+//
+//  With 16 logical processors spawning 100 buses:
+//    Serial:   100 × ~5ms connect = ~500ms
+//    Parallel: ceil(100/16) × ~5ms = ~35ms  (≈14× faster)
+// ─────────────────────────────────────────────────────────────────────────────
+int spawnParallel(const std::vector<std::pair<int,int>>& work, RouteMap& routes) {
+    int n = (int)work.size();
+    if (n == 0) return 0;
+
+    int hw          = (int)std::thread::hardware_concurrency();
+    int num_threads = std::min(n, hw > 0 ? hw : 4);
+
+    std::atomic<int> spawned{0};
+    std::atomic<int> done{0};     // total attempts finished (success + fail)
+
+    // Print initial progress line
+    std::cout << "[Start] 0/" << n << " buses spawned..." << std::flush;
+
+    std::vector<std::thread> workers;
+    workers.reserve(num_threads);
+
+    for (int t = 0; t < num_threads; ++t) {
+        int lo = t * n / num_threads;
+        int hi = (t + 1) * n / num_threads;
+
+        workers.emplace_back([&, lo, hi]() {
+            for (int i = lo; i < hi; ++i) {
+                auto [route_id, wp] = work[i];
+                bool ok = (spawnBus(route_id, wp, routes) != -1);
+                if (ok) ++spawned;
+                int d = ++done;
+                // Overwrite the same console line (\r) for a live counter.
+                // Only update every 1% of total work to avoid excessive I/O.
+                if (n <= 100 || d % std::max(1, n/100) == 0 || d == n) {
+                    std::cout << "\r[Start] " << d << "/" << n
+                              << " buses spawned..." << std::flush;
+                }
+            }
+        });
+    }
+
+    for (auto& w : workers) w.join();
+    std::cout << "\r[Start] Done \u2014 " << spawned.load() << "/" << n
+              << " bus(es) active." << std::string(10, ' ') << "\n";
+    return spawned.load();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,24 +200,26 @@ void cmdStart(const std::map<std::string, std::string>& flags, RouteMap& routes)
     int n = safeInt(flags, "-n", 1);
     if (n <= 0) { std::cerr << "[Start] -n must be > 0.\n"; return; }
 
+    // Build a flat list of (route_id, waypoint) pairs — one per bus to spawn.
+    // Constructing this list is O(n) and fast; the actual Bus creation (TCP
+    // connect, SQLite open) is deferred to spawnParallel which does it in
+    // parallel across all available hardware threads.
+    std::vector<std::pair<int,int>> work;
+    work.reserve(n);
+
     if (flags.count("-r")) {
         // ── Spawn N buses on one specific route ───────────────────────────────
-        int route_id     = safeInt(flags, "-r");
-        auto it          = routes.find(route_id);
+        int route_id = safeInt(flags, "-r");
+        auto it      = routes.find(route_id);
         if (it == routes.end()) {
             std::cerr << "[Start] Route " << route_id << " not found.\n";
             return;
         }
         int wp_count = (int)it->second.size();
-        int spawned  = 0;
-
         for (int i = 0; i < n; ++i) {
-            // Spread starting positions evenly: bus i starts at (i/n) of the route
             int wp = (wp_count > 1 && n > 1) ? (i * wp_count / n) : 0;
-            if (spawnBus(route_id, wp, routes) != -1) ++spawned;
+            work.emplace_back(route_id, wp);
         }
-        std::cout << "[Start] Spawned " << spawned << "/" << n
-                  << " bus(es) on route " << route_id << "\n";
 
     } else {
         // ── Distribute N buses across all routes ──────────────────────────────
@@ -151,37 +229,30 @@ void cmdStart(const std::map<std::string, std::string>& flags, RouteMap& routes)
         std::sort(route_ids.begin(), route_ids.end());
 
         int total_routes = (int)route_ids.size();
-        int spawned      = 0;
 
         if (n >= total_routes) {
-            // At least 1 bus per route; distribute evenly with remainder going
-            // to the first routes (round-robin style).
             int base  = n / total_routes;
-            int extra = n % total_routes;   // first `extra` routes get one more
-
+            int extra = n % total_routes;
             for (int ri = 0; ri < total_routes; ++ri) {
                 int route_id   = route_ids[ri];
                 int buses_here = base + (ri < extra ? 1 : 0);
                 const auto& wps = routes[route_id];
                 int wp_count    = (int)wps.size();
-
                 for (int i = 0; i < buses_here; ++i) {
                     int wp = (wp_count > 1 && buses_here > 1)
-                             ? (i * wp_count / buses_here)
-                             : 0;
-                    if (spawnBus(route_id, wp, routes) != -1) ++spawned;
+                             ? (i * wp_count / buses_here) : 0;
+                    work.emplace_back(route_id, wp);
                 }
             }
         } else {
-            // Fewer buses than routes: put exactly 1 on the first N routes.
-            for (int i = 0; i < n; ++i) {
-                if (spawnBus(route_ids[i], 0, routes) != -1) ++spawned;
-            }
+            for (int i = 0; i < n; ++i)
+                work.emplace_back(route_ids[i], 0);
         }
-
-        std::cout << "[Start] Spawned " << spawned << " bus(es) across "
-                  << std::min(n, total_routes) << " route(s).\n";
     }
+
+    // Fan out the work list across hardware threads
+    int spawned = spawnParallel(work, routes);
+    std::cout << "[Start] Done — " << spawned << "/" << n << " bus(es) active.\n";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,82 +266,90 @@ void cmdStart(const std::map<std::string, std::string>& flags, RouteMap& routes)
 //  stop -n <count>   Stop the <count> most-recently-spawned buses (globally).
 // ─────────────────────────────────────────────────────────────────────────────
 void cmdStop(const std::map<std::string, std::string>& flags) {
-    std::lock_guard<std::mutex> lock(buses_mutex);
 
-    // ── (a) Stop all ──────────────────────────────────────────────────────────
-    if (flags.count("-a")) {
-        std::cout << "[Stop] Stopping all " << active_buses.size() << " bus(es)...\n";
-        for (auto& e : active_buses) e.bus->stop();
-        active_buses.clear();
-        return;
-    }
+    // Collect buses to stop -- hold lock only briefly for the swap.
+    // Stopping (TCP teardown + SQLite close) is slow; we do it in parallel
+    // after releasing the mutex.
+    std::vector<BusEntry> victims;
+    {
+        std::lock_guard<std::mutex> lock(buses_mutex);
 
-    // ── (b) Stop by vehicle ID ────────────────────────────────────────────────
-    if (flags.count("-i")) {
-        int id = safeInt(flags, "-i");
-        auto it = std::find_if(active_buses.begin(), active_buses.end(),
-                               [id](const BusEntry& e){ return e.vehicle_id == id; });
-        if (it == active_buses.end()) {
-            std::cerr << "[Stop] No bus with ID " << id << ".\n";
-            return;
-        }
-        std::cout << "[Stop] Bus #" << it->vehicle_id
-                  << " (route " << it->route_id << ") stopped.\n";
-        it->bus->stop();
-        active_buses.erase(it);
-        return;
-    }
+        if (flags.count("-a")) {
+            std::cout << "[Stop] Collecting all " << active_buses.size() << " bus(es)...\n";
+            victims = std::move(active_buses);
+            active_buses.clear();
 
-    // ── (c) Stop by list index ────────────────────────────────────────────────
-    if (flags.count("-b")) {
-        int idx = safeInt(flags, "-b");
-        if (idx < 0 || idx >= (int)active_buses.size()) {
-            std::cerr << "[Stop] Index " << idx << " out of range (0–"
-                      << (int)active_buses.size() - 1 << ").\n";
-            return;
-        }
-        auto it = active_buses.begin() + idx;
-        std::cout << "[Stop] Bus #" << it->vehicle_id
-                  << " (route " << it->route_id << ") stopped.\n";
-        it->bus->stop();
-        active_buses.erase(it);
-        return;
-    }
+        } else if (flags.count("-i")) {
+            int id = safeInt(flags, "-i");
+            auto it = std::find_if(active_buses.begin(), active_buses.end(),
+                                   [id](const BusEntry& e){ return e.vehicle_id == id; });
+            if (it == active_buses.end()) {
+                std::cerr << "[Stop] No bus with ID " << id << ".\n"; return;
+            }
+            victims.push_back(std::move(*it));
+            active_buses.erase(it);
 
-    // ── (d) Stop N latest buses, optionally filtered by route ─────────────────
-    // "Latest" = closest to the end of active_buses (most recently spawned).
-    int n = safeInt(flags, "-n", (int)active_buses.size());
-    if (n <= 0) { std::cerr << "[Stop] -n must be > 0.\n"; return; }
+        } else if (flags.count("-b")) {
+            int idx = safeInt(flags, "-b");
+            if (idx < 0 || idx >= (int)active_buses.size()) {
+                std::cerr << "[Stop] Index " << idx << " out of range.\n"; return;
+            }
+            auto it = active_buses.begin() + idx;
+            victims.push_back(std::move(*it));
+            active_buses.erase(it);
 
-    if (flags.count("-r")) {
-        int route_id = safeInt(flags, "-r");
-        int stopped  = 0;
+        } else {
+            int n = safeInt(flags, "-n", (int)active_buses.size());
+            if (n <= 0) { std::cerr << "[Stop] -n must be > 0.\n"; return; }
 
-        // Scan from the back so we remove the most-recently-spawned first.
-        for (auto it = active_buses.end(); it != active_buses.begin() && stopped < n; ) {
-            --it;
-            if (it->route_id == route_id) {
-                std::cout << "[Stop] Bus #" << it->vehicle_id
-                          << " (route " << route_id << ")\n";
-                it->bus->stop();
-                it = active_buses.erase(it);
-                ++stopped;
+            if (flags.count("-r")) {
+                int route_id = safeInt(flags, "-r");
+                for (auto it = active_buses.end();
+                     it != active_buses.begin() && (int)victims.size() < n; ) {
+                    --it;
+                    if (it->route_id == route_id) {
+                        victims.push_back(std::move(*it));
+                        it = active_buses.erase(it);
+                    }
+                }
+            } else {
+                int to_stop = std::min(n, (int)active_buses.size());
+                while (to_stop-- > 0) {
+                    victims.push_back(std::move(active_buses.back()));
+                    active_buses.pop_back();
+                }
             }
         }
-        std::cout << "[Stop] Stopped " << stopped << " bus(es) on route "
-                  << route_id << ".\n";
-    } else {
-        // No route filter: stop the last N globally.
-        int to_stop = std::min(n, (int)active_buses.size());
-        for (int i = 0; i < to_stop; ++i) {
-            auto& e = active_buses.back();
-            std::cout << "[Stop] Bus #" << e.vehicle_id
-                      << " (route " << e.route_id << ")\n";
-            e.bus->stop();
-            active_buses.pop_back();
-        }
-        std::cout << "[Stop] Stopped " << to_stop << " bus(es).\n";
+    } // mutex released
+
+    if (victims.empty()) { std::cout << "[Stop] Nothing to stop.\n"; return; }
+
+    // Stop in parallel with a live progress bar
+    int total       = (int)victims.size();
+    int hw          = (int)std::thread::hardware_concurrency();
+    int num_threads = std::min(total, hw > 0 ? hw : 4);
+    std::cout << "[Stop] 0/" << total << " stopped..." << std::flush;
+
+    std::atomic<int> done{0};
+    std::vector<std::thread> workers;
+    workers.reserve(num_threads);
+    for (int t = 0; t < num_threads; ++t) {
+        int lo = t * total / num_threads;
+        int hi = (t + 1) * total / num_threads;
+        workers.emplace_back([&, lo, hi]() {
+            for (int i = lo; i < hi; ++i) {
+                victims[i].bus->stop();
+                int d = ++done;
+                if (total <= 50 || d % std::max(1, total/50) == 0 || d == total)
+                    std::cout << "\r[Stop] " << d << "/" << total
+                              << " stopped..." << std::flush;
+            }
+        });
     }
+    for (auto& w : workers) w.join();
+    // victims goes out of scope -- Bus destructors called automatically
+    std::cout << "\r[Stop] Done -- " << total << " bus(es) stopped."
+              << std::string(10, ' ') << "\n";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -344,7 +423,7 @@ void interactiveMode(RouteMap& routes) {
 // ─────────────────────────────────────────────────────────────────────────────
 int main(int argc, char* argv[]) {
     // 1. Load routes
-    RouteMap routes = loadRoutes("routes.csv");
+    RouteMap routes = loadRoutes("routes.json");
     if (routes.empty()) {
         std::cerr << "[main] No routes loaded. Exiting.\n";
         return 1;
@@ -370,12 +449,28 @@ int main(int argc, char* argv[]) {
         interactiveMode(routes);
     }
 
-    // 3. Graceful shutdown — stop everything still running
-    std::cout << "Stopping all buses...\n";
+    // 3. Graceful shutdown -- parallel stop
+    std::vector<BusEntry> remaining;
     {
         std::lock_guard<std::mutex> lock(buses_mutex);
-        for (auto& e : active_buses) e.bus->stop();
+        remaining = std::move(active_buses);
         active_buses.clear();
+    }
+    if (!remaining.empty()) {
+        int total       = (int)remaining.size();
+        int hw          = (int)std::thread::hardware_concurrency();
+        int num_threads = std::min(total, hw > 0 ? hw : 4);
+        std::cout << "Stopping " << total << " bus(es)..." << std::flush;
+        std::vector<std::thread> workers;
+        for (int t = 0; t < num_threads; ++t) {
+            int lo = t * total / num_threads;
+            int hi = (t + 1) * total / num_threads;
+            workers.emplace_back([&, lo, hi]() {
+                for (int i = lo; i < hi; ++i) remaining[i].bus->stop();
+            });
+        }
+        for (auto& w : workers) w.join();
+        std::cout << " done.\n";
     }
     std::cout << "=== Bus System Stopped ===\n";
     return 0;
