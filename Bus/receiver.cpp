@@ -1,4 +1,6 @@
 #include "receiver.h"
+#include "runtime_config.h"
+#include "bus_stats.h"
 #include <sstream>
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -22,13 +24,16 @@
 Receiver::Receiver()
     : socket_(INVALID_SOCKET), running_(false)
 {
-    WSADATA wsa;
-    WSAStartup(MAKEWORD(2, 2), &wsa);
+    if (!net::initSockets()) {
+        if (kVerboseBusLogs) {
+            std::cerr << "[Receiver] socket stack init failed.\n";
+        }
+    }
 }
 
 Receiver::~Receiver() {
     stop();
-    WSACleanup();
+    net::cleanupSockets();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -37,7 +42,10 @@ Receiver::~Receiver() {
 bool Receiver::start(const std::string& host, int port) {
     socket_ = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (socket_ == INVALID_SOCKET) {
-        std::cerr << "[Receiver] socket() failed\n";
+        ++gBusErrorCounters.receiverConnectFailures;
+        if (kVerboseBusLogs) {
+            std::cerr << "[Receiver] socket() failed\n";
+        }
         return false;
     }
 
@@ -47,14 +55,19 @@ bool Receiver::start(const std::string& host, int port) {
     inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
 
     if (::connect(socket_, (struct sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
-        std::cerr << "[Receiver] connect() to command channel failed: "
-                  << WSAGetLastError() << "\n";
-        ::closesocket(socket_);
+        ++gBusErrorCounters.receiverConnectFailures;
+        if (kVerboseBusLogs) {
+            std::cerr << "[Receiver] connect() to command channel failed: "
+                      << net::lastError() << "\n";
+        }
+        net::closeSocket(socket_);
         socket_ = INVALID_SOCKET;
         return false;
     }
 
-    std::cout << "[Receiver] Command channel open to " << host << ":" << port << "\n";
+    if (kVerboseBusLogs) {
+        std::cout << "[Receiver] Command channel open to " << host << ":" << port << "\n";
+    }
 
     running_ = true;
     worker_  = std::thread(&Receiver::listenLoop, this);
@@ -72,7 +85,7 @@ void Receiver::stop() {
     // exit its loop naturally.  This is the standard technique to unblock
     // a thread that is sleeping inside a blocking syscall.
     if (socket_ != INVALID_SOCKET) {
-        ::closesocket(socket_);
+        net::closeSocket(socket_);
         socket_ = INVALID_SOCKET;
     }
 
@@ -104,14 +117,19 @@ void Receiver::listenLoop() {
         }
         else if (bytesReceived == 0) {
             // The server gracefully closed the connection.
-            std::cout << "[Receiver] Server closed command channel.\n";
+            if (kVerboseBusLogs) {
+                std::cout << "[Receiver] Server closed command channel.\n";
+            }
             break;
         }
         else {
             // recv() returned -1.  If we set running_=false and closed the
             // socket ourselves (in stop()), this is expected — not an error.
             if (running_) {
-                std::cerr << "[Receiver] recv() error: " << WSAGetLastError() << "\n";
+                ++gBusErrorCounters.receiverRecvFailures;
+                if (kVerboseBusLogs) {
+                    std::cerr << "[Receiver] recv() error: " << net::lastError() << "\n";
+                }
             }
             break;
         }
@@ -132,19 +150,27 @@ void Receiver::handleCommand(const std::string& raw) {
     while (!cmd.empty() && (cmd.back() == '\n' || cmd.back() == '\r' || cmd.back() == ' '))
         cmd.pop_back();
 
-    std::cout << "[Receiver] Command received: \"" << cmd << "\"\n";
+    if (kVerboseBusLogs) {
+        std::cout << "[Receiver] Command received: \"" << cmd << "\"\n";
+    }
 
     if (cmd == "STOP") {
-        std::cout << "[Receiver] Bus instructed to stop.\n";
+        if (kVerboseBusLogs) {
+            std::cout << "[Receiver] Bus instructed to stop.\n";
+        }
         // TODO: set a flag that the GPS/Bus reads to halt movement
     }
     else if (cmd.rfind("REROUTE ", 0) == 0) {
         // rfind with position=0 is a fast startsWith check.
         int newRoute = std::stoi(cmd.substr(8));
-        std::cout << "[Receiver] Bus instructed to switch to route " << newRoute << ".\n";
+        if (kVerboseBusLogs) {
+            std::cout << "[Receiver] Bus instructed to switch to route " << newRoute << ".\n";
+        }
         // TODO: pass newRoute to GPS object
     }
     else {
-        std::cout << "[Receiver] Unknown command: " << cmd << "\n";
+        if (kVerboseBusLogs) {
+            std::cout << "[Receiver] Unknown command: " << cmd << "\n";
+        }
     }
 }

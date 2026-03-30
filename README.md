@@ -1,4 +1,4 @@
-***STATISTICS***
+## Statistics
 **I. Vehicles**
 - 2,100 buses running concurently
 - JSON data size: less than 500 Bytes / message
@@ -48,3 +48,13 @@ The system follows a highly resilient, distributed, and event-driven architectur
 ## Geo-Spatial Data
 - **Scale:** 150 primary routes, up to ~10,000 vertices per route.
 - **Source:** Extracted using the OpenStreetMap API. We have successfully scraped and normalized the precise GPS traces of **340 unique transit routes** and exact geographical coordinates of **5,500 bus stations** stored in our local file structures and databases.
+
+
+### Problem and Solution
+1. Buses' database on simulation
+**Problem:** When the number of buses scales to thousands, running insert query every second will overwhelm the system. Even there is a database file (.db) for each bus, still everything is running on a single machine and OS cannot handle thousands of I/O operations at the exact same time. Causing SQLite creates a temporary Write-Ahead Log (-wal) file for every single bus, and we easily hit 10GBs just for this.
+
+**Solution:**
+- Store in memory: In-memory SQLite
+- Random delays for write cycle
+- Change the storing strategy: Store events instead of states

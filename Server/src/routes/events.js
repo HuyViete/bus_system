@@ -7,6 +7,7 @@ import {
     getHeadway,
     getAnomalies,
     getLivePositions,
+    getIngestionMetrics,
 } from '../controllers/queryController.js'
 
 const router = Router()
@@ -21,5 +22,8 @@ router.get('/trips',     getTrips)         // ?vehicle_id=BUS-2003&route=1&statu
 router.get('/speed',     getSpeedProfiles) // ?route=1&hour_of_day=8
 router.get('/headway',   getHeadway)       // ?route=1&stop_id=STOP-42
 router.get('/anomalies', getAnomalies)     // ?vehicle_id=BUS-2003&anomaly_type=hard_brake&severity=warning
+
+// Ingestion benchmarking and before/after architecture comparisons
+router.get('/ingestion-metrics', getIngestionMetrics) // ?minutes=60&phase=baseline-http-postgres
 
 export default router

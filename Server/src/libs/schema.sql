@@ -1,9 +1,11 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 --  schema.sql  —  Derived event tables for the Bus Tracking System
 --
---  PHILOSOPHY: Raw GPS rows (lat/lon every 3s) are NOT stored long-term.
---  Instead, we derive and store meaningful EVENTS from the GPS stream.
---  These tables are small, queryable, and business-valuable.
+--  PHILOSOPHY:
+--  1) Keep one lean typed raw history table as training source-of-truth.
+--  2) Keep derived event tables for analytics dashboards.
+--  3) Keep ingestion metrics by minute/phase so we can compare architecture
+--     changes (baseline vs Kafka vs Redis vs Spark, etc.) with real numbers.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- 1. RAW GPS — latest position only (used for live map, short TTL in Redis in prod)
@@ -17,6 +19,47 @@ CREATE TABLE IF NOT EXISTS gps_latest (
     heading     DOUBLE PRECISION,
     updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 1b. RAW GPS TELEMETRY HISTORY — append-only training/replay dataset.
+--     This is the source-of-truth history for model training and backfills.
+CREATE TABLE IF NOT EXISTS gps_telemetry_raw (
+    id                BIGSERIAL PRIMARY KEY,
+    vehicle_id        TEXT        NOT NULL,
+    route             INTEGER     NOT NULL,
+    seq_no            BIGINT,
+    latitude          DOUBLE PRECISION NOT NULL,
+    longitude         DOUBLE PRECISION NOT NULL,
+    speed             DOUBLE PRECISION,
+    heading           DOUBLE PRECISION,
+    device_timestamp  TIMESTAMPTZ NOT NULL,
+    ingested_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    quality_flags     JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_gps_raw_vehicle_time ON gps_telemetry_raw(vehicle_id, device_timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_gps_raw_route_time   ON gps_telemetry_raw(route, device_timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_gps_raw_ingested     ON gps_telemetry_raw(ingested_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_gps_raw_vehicle_ts ON gps_telemetry_raw(vehicle_id, device_timestamp);
+
+-- Ingestion metrics sampled per minute for architecture before/after analysis.
+CREATE TABLE IF NOT EXISTS ingest_metrics_minute (
+    id                    BIGSERIAL PRIMARY KEY,
+    phase                 TEXT        NOT NULL,
+    bucket_start          TIMESTAMPTZ NOT NULL,
+    packets_received      INTEGER     NOT NULL DEFAULT 0,
+    packets_valid         INTEGER     NOT NULL DEFAULT 0,
+    packets_invalid       INTEGER     NOT NULL DEFAULT 0,
+    processed_ok          INTEGER     NOT NULL DEFAULT 0,
+    processed_fail        INTEGER     NOT NULL DEFAULT 0,
+    raw_insert_ok         INTEGER     NOT NULL DEFAULT 0,
+    raw_insert_fail       INTEGER     NOT NULL DEFAULT 0,
+    raw_insert_duplicate  INTEGER     NOT NULL DEFAULT 0,
+    processing_samples    INTEGER     NOT NULL DEFAULT 0,
+    processing_ms_total   BIGINT      NOT NULL DEFAULT 0,
+    processing_ms_max     INTEGER     NOT NULL DEFAULT 0,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (phase, bucket_start)
+);
+CREATE INDEX IF NOT EXISTS idx_metrics_phase_bucket ON ingest_metrics_minute(phase, bucket_start DESC);
 
 -- 2. STOP EVENTS — when a bus arrives at / departs from a stop
 --    Derived by checking if GPS position enters/exits a stop's geofence radius.

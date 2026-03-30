@@ -2,20 +2,26 @@
  * gpsProcessor.js  —  Real-Time GPS Event Detection Engine
  *
  * This is the "brain" of the ingestion pipeline. Every GPS packet that arrives
- * from a bus is passed through this module. It maintains in-memory state for
- * every active vehicle and emits derived EVENTS to PostgreSQL when meaningful
- * transitions are detected.
+ * from a bus is passed through this module. It stores RAW telemetry history for
+ * training/replay, maintains in-memory state for every active vehicle, and
+ * emits derived EVENTS to PostgreSQL when meaningful transitions are detected.
  *
  * EVENTS DETECTED:
- *   1. Stop Arrival / Departure  — geofence crossing
- *   2. Dwell Time                — derived from arrival+departure pair
- *   3. Trip Completion           — bus wraps around its full route
- *   4. Speed Profile             — avg speed logged per stop-to-stop segment
- *   5. Headway                   — gap between consecutive buses at a stop
- *   6. Anomalies                 — hard brake, speeding, off-route, GPS loss, bunching
+ *   1. Raw Telemetry Persistence — append-only gps_telemetry_raw insert
+ *   2. Stop Arrival / Departure  — geofence crossing
+ *   3. Dwell Time                — derived from arrival+departure pair
+ *   4. Trip Completion           — bus wraps around its full route
+ *   5. Speed Profile             — avg speed logged per stop-to-stop segment
+ *   6. Headway                   — gap between consecutive buses at a stop
+ *   7. Anomalies                 — hard brake, speeding, off-route, GPS loss, bunching
  */
 
 import pool from './db.js'
+import {
+    recordRawInsertOk,
+    recordRawInsertFail,
+    recordRawInsertDuplicate,
+} from './ingestionMetrics.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  CONSTANTS  (tune these for your system)
@@ -126,17 +132,50 @@ export async function processGPS(packet) {
     }
 
     // ── Run all detection checks in parallel ─────────────────────────────────
-    await Promise.allSettled([
+    const results = await Promise.allSettled([
+        persistRawTelemetry(packet),
         updateLatestPosition(packet, now),
         detectAnomalies(state, packet, now),
         detectStopEvents(state, packet, now),
     ])
+
+    const firstReject = results.find(r => r.status === 'rejected')
+    if (firstReject) {
+        throw firstReject.reason
+    }
 
     // ── Update in-memory state ────────────────────────────────────────────────
     state.lastLat       = latitude
     state.lastLon       = longitude
     state.lastSpeed     = speed
     state.lastTimestamp = timestamp
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  0. RAW TELEMETRY HISTORY  (append-only training/replay storage)
+// ─────────────────────────────────────────────────────────────────────────────
+async function persistRawTelemetry(packet) {
+    const { vehicle_id, route, seq_no = null, latitude, longitude, speed, heading, timestamp } = packet
+    const deviceTime = new Date(timestamp * 1000)
+
+    try {
+        const result = await pool.query(`
+            INSERT INTO gps_telemetry_raw
+                (vehicle_id, route, seq_no, latitude, longitude, speed, heading, device_timestamp)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (vehicle_id, device_timestamp) DO NOTHING
+            RETURNING id
+        `, [vehicle_id, route, seq_no, latitude, longitude, speed, heading, deviceTime])
+
+        if (result.rowCount === 0) {
+            recordRawInsertDuplicate()
+        } else {
+            recordRawInsertOk()
+        }
+    } catch (err) {
+        recordRawInsertFail()
+        throw err
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 #include "bus.h"
+#include "runtime_config.h"
 #include <iostream>
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -60,33 +61,32 @@ void Bus::start(const std::string& host,
                 const std::vector<Waypoint>& waypoints,
                 int start_index)
 {
-    std::cout << "[Bus " << vehicle_id_ << "] Starting on route " << route_id_ << "\n";
+    if (kVerboseBusLogs) {
+        std::cout << "[Bus " << vehicle_id_ << "] Starting on route " << route_id_ << "\n";
+    }
 
     // ── 1. Open local database for offline buffering ──────────────────────────
     //    Each bus opens its OWN file: "BUS-<vehicle_id>.db".
     //    This avoids file-locking conflicts when multiple buses run in the
     //    same process, and makes per-bus diagnostics trivial.
-    db_.open("BUS-" + std::to_string(vehicle_id_));
+    if (kEnableLocalDatabase) {
+        db_.open("BUS-" + std::to_string(vehicle_id_));
+    }
 
     // ── 2. Connect the Sender to the server's data port ──────────────────────
     //    If the server is not reachable yet, we continue anyway (the bus can
     //    buffer data locally in SQLite and sync later — future improvement).
-    if (!sender_.start(host, data_port)) {
-        std::cerr << "[Bus " << vehicle_id_ << "] WARNING: Cannot reach data server. "
-                  << "Will operate in offline mode.\n";
-    }
+    sender_.start(host, data_port);
 
     // ── 3. Connect the Receiver to the server's command port ─────────────────
     //    Not fatal if this fails — the bus can still run and send data.
-    if (!receiver_.start(host, cmd_port)) {
-        std::cerr << "[Bus " << vehicle_id_ << "] WARNING: Cannot reach command channel.\n";
-    }
+    receiver_.start(host, cmd_port);
 
     // ── 4. Give GPS its route data, the Sender, and the Database ────────────
     //    From this point GPS will:
     //      • call db_.insertGPSData()   → local buffer  (every tick)
     //      • call sender_.enqueueGPS()  → server        (every tick)
-    gps_.setRoute(route_id_, waypoints, start_index, sender_, db_);
+    gps_.setRoute(route_id_, waypoints, start_index, vehicle_id_, sender_, db_);
 
     // ── 5. Launch the GPS loop on its own thread ──────────────────────────────
     //
@@ -98,7 +98,9 @@ void Bus::start(const std::string& host,
     //  DO NOT detach() — see the explanation in sender.cpp.
     gps_thread_ = std::thread(&GPS::start, &gps_);
 
-    std::cout << "[Bus " << vehicle_id_ << "] All systems running.\n";
+    if (kVerboseBusLogs) {
+        std::cout << "[Bus " << vehicle_id_ << "] All systems running.\n";
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -117,7 +119,9 @@ void Bus::start(const std::string& host,
 //  GPS would try to enqueue onto a queue being destroyed — undefined behaviour.
 // ─────────────────────────────────────────────────────────────────────────────
 void Bus::stop() {
-    std::cout << "[Bus " << vehicle_id_ << "] Stopping...\n";
+    if (kVerboseBusLogs) {
+        std::cout << "[Bus " << vehicle_id_ << "] Stopping...\n";
+    }
 
     // 1. Tell the GPS loop to exit on its next iteration.
     gps_.stop();
@@ -134,7 +138,11 @@ void Bus::stop() {
     receiver_.stop();
 
     // 5. Close local database.
-    db_.close();
+    if (kEnableLocalDatabase) {
+        db_.close();
+    }
 
-    std::cout << "[Bus " << vehicle_id_ << "] Stopped cleanly.\n";
+    if (kVerboseBusLogs) {
+        std::cout << "[Bus " << vehicle_id_ << "] Stopped cleanly.\n";
+    }
 }

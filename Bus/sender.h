@@ -7,7 +7,7 @@
 #include <mutex>
 #include <queue>
 #include <condition_variable>
-#include <winsock2.h>
+#include "net_compat.h"
 #include "types.h"
 
 // ─────────────────────────────────────────────────────────────────────────────

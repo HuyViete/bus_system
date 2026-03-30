@@ -1,6 +1,7 @@
 #include "gps.h"
 #include "sender.h"
 #include "database.h"
+#include "runtime_config.h"
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
@@ -41,13 +42,14 @@ GPS::~GPS() {
 void GPS::setRoute(int rid,
                    const std::vector<Waypoint>& wps,
                    int start_index,
+                   int vehicle_id,
                    Sender&   sender,
                    Database& db)
 {
     route_id_       = rid;
     waypoints_      = wps;
     wp_index_       = waypoints_.empty() ? 0 : (start_index % (int)waypoints_.size());
-    vehicle_id_str_ = "BUS-" + std::to_string(rid);
+    vehicle_id_str_ = std::to_string(vehicle_id);
     sender_         = &sender;  // borrow; Bus guarantees Sender outlives GPS
     db_             = &db;      // borrow; Bus guarantees Database outlives GPS
 }
@@ -79,7 +81,7 @@ void GPS::start() {
         // 2. Write to the local SQLite buffer FIRST.
         //    This happens even when the server is unreachable — the bus never
         //    loses a packet. The 'synced' field starts as 0 (unacknowledged).
-        if (db_) {
+        if (kEnableLocalDatabase && db_) {
             db_->insertGPSData(data);
         }
 

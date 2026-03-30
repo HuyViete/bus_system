@@ -8,7 +8,9 @@
 #include <atomic>
 #include <algorithm>
 #include <map>
+#include <iomanip>
 #include "bus.h"
+#include "bus_stats.h"
 #include "route_loader.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,10 +43,29 @@ std::mutex             buses_mutex;
 // Counter persists across multiple 'start' commands so IDs never repeat.
 std::map<int, int> route_counters;
 std::mutex         counters_mutex;
+std::mutex         progress_mutex;
 
 int nextBusId(int route_id) {
     std::lock_guard<std::mutex> lock(counters_mutex);
     return route_id * 1000 + (++route_counters[route_id]);
+}
+
+void printProgressBar(const std::string& label, int done, int total) {
+    std::lock_guard<std::mutex> lock(progress_mutex);
+    constexpr int width = 32;
+    int safeTotal = std::max(total, 1);
+    int filled = (done * width) / safeTotal;
+    if (filled < 0) filled = 0;
+    if (filled > width) filled = width;
+
+    std::cout << "\r[" << label << "] ["
+              << std::string(filled, '#')
+              << std::string(width - filled, '-')
+              << "] " << std::setw(4) << done << "/" << total << std::flush;
+
+    if (done >= total) {
+        std::cout << "\n";
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -125,8 +146,6 @@ int spawnBus(int route_id, int start_waypoint, RouteMap& routes) {
         active_buses.push_back({ bus_id, route_id, std::move(bus) });
     }
 
-    std::cout << "[Spawn] Bus #" << bus_id << " → Route " << route_id
-              << " (waypoint " << start_waypoint << ")\n";
     return bus_id;
 }
 
@@ -152,8 +171,7 @@ int spawnParallel(const std::vector<std::pair<int,int>>& work, RouteMap& routes)
     std::atomic<int> spawned{0};
     std::atomic<int> done{0};     // total attempts finished (success + fail)
 
-    // Print initial progress line
-    std::cout << "[Start] 0/" << n << " buses spawned..." << std::flush;
+    printProgressBar("Start", 0, n);
 
     std::vector<std::thread> workers;
     workers.reserve(num_threads);
@@ -168,19 +186,14 @@ int spawnParallel(const std::vector<std::pair<int,int>>& work, RouteMap& routes)
                 bool ok = (spawnBus(route_id, wp, routes) != -1);
                 if (ok) ++spawned;
                 int d = ++done;
-                // Overwrite the same console line (\r) for a live counter.
-                // Only update every 1% of total work to avoid excessive I/O.
                 if (n <= 100 || d % std::max(1, n/100) == 0 || d == n) {
-                    std::cout << "\r[Start] " << d << "/" << n
-                              << " buses spawned..." << std::flush;
+                    printProgressBar("Start", d, n);
                 }
             }
         });
     }
 
     for (auto& w : workers) w.join();
-    std::cout << "\r[Start] Done \u2014 " << spawned.load() << "/" << n
-              << " bus(es) active." << std::string(10, ' ') << "\n";
     return spawned.load();
 }
 
@@ -251,8 +264,20 @@ void cmdStart(const std::map<std::string, std::string>& flags, RouteMap& routes)
     }
 
     // Fan out the work list across hardware threads
+    auto before = snapshotBusErrors();
     int spawned = spawnParallel(work, routes);
-    std::cout << "[Start] Done — " << spawned << "/" << n << " bus(es) active.\n";
+    auto after  = snapshotBusErrors();
+    auto delta  = diffBusErrors(before, after);
+
+    std::cout << "[Start] Done - " << spawned << "/" << n << " bus(es) active.\n";
+    if (delta.hasAny()) {
+        std::cout << "[Start] Error summary:"
+                  << " data-connect=" << delta.senderConnectFailures
+                  << ", cmd-connect=" << delta.receiverConnectFailures
+                  << ", send=" << delta.senderSendFailures
+                  << ", recv=" << delta.receiverRecvFailures
+                  << "\n";
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -328,8 +353,9 @@ void cmdStop(const std::map<std::string, std::string>& flags) {
     int total       = (int)victims.size();
     int hw          = (int)std::thread::hardware_concurrency();
     int num_threads = std::min(total, hw > 0 ? hw : 4);
-    std::cout << "[Stop] 0/" << total << " stopped..." << std::flush;
+    printProgressBar("Stop", 0, total);
 
+    auto before = snapshotBusErrors();
     std::atomic<int> done{0};
     std::vector<std::thread> workers;
     workers.reserve(num_threads);
@@ -341,15 +367,23 @@ void cmdStop(const std::map<std::string, std::string>& flags) {
                 victims[i].bus->stop();
                 int d = ++done;
                 if (total <= 50 || d % std::max(1, total/50) == 0 || d == total)
-                    std::cout << "\r[Stop] " << d << "/" << total
-                              << " stopped..." << std::flush;
+                    printProgressBar("Stop", d, total);
             }
         });
     }
     for (auto& w : workers) w.join();
+    auto after = snapshotBusErrors();
+    auto delta = diffBusErrors(before, after);
     // victims goes out of scope -- Bus destructors called automatically
-    std::cout << "\r[Stop] Done -- " << total << " bus(es) stopped."
-              << std::string(10, ' ') << "\n";
+    std::cout << "[Stop] Done - " << total << " bus(es) stopped.\n";
+    if (delta.hasAny()) {
+        std::cout << "[Stop] Error summary:"
+                  << " data-connect=" << delta.senderConnectFailures
+                  << ", cmd-connect=" << delta.receiverConnectFailures
+                  << ", send=" << delta.senderSendFailures
+                  << ", recv=" << delta.receiverRecvFailures
+                  << "\n";
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -365,7 +399,7 @@ void cmdList() {
     for (int i = 0; i < (int)active_buses.size(); ++i) {
         const auto& e = active_buses[i];
         std::cout << "  [" << i << "] Bus #" << e.vehicle_id
-                  << " — Route " << e.route_id << "\n";
+                  << " - Route " << e.route_id << "\n";
     }
 }
 
@@ -398,9 +432,9 @@ bool dispatch(const std::string& line, RouteMap& routes) {
 //  Interactive REPL
 // ─────────────────────────────────────────────────────────────────────────────
 void interactiveMode(RouteMap& routes) {
-    std::cout << "\n╔══════════════════════════════════════════════╗\n";
-    std::cout <<   "║          Bus Fleet Manager (REPL)            ║\n";
-    std::cout <<   "╚══════════════════════════════════════════════╝\n";
+    std::cout << "\n===============================================\n";
+    std::cout <<   "          Bus Fleet Manager (REPL)\n";
+    std::cout <<   "===============================================\n";
     std::cout << "  start -r <route> -n <count>    Spawn buses on one route\n";
     std::cout << "  start -n <count>               Distribute buses across all routes\n";
     std::cout << "  stop  -a                       Stop ALL buses\n";

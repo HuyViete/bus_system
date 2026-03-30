@@ -1,8 +1,8 @@
 #include "sender.h"
+#include "runtime_config.h"
+#include "bus_stats.h"
 #include <sstream>
 #include <iomanip>
-#include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
 
 // ═════════════════════════════════════════════════════════════════════════════
 //  CONCEPT 1 — Constructor / Destructor (RAII)
@@ -14,14 +14,16 @@
 Sender::Sender()
     : socket_(INVALID_SOCKET), running_(false)
 {
-    // Winsock must be initialised once before any socket calls.
-    WSADATA wsa;
-    WSAStartup(MAKEWORD(2, 2), &wsa);
+    if (!net::initSockets()) {
+        if (kVerboseBusLogs) {
+            std::cerr << "[Sender] socket stack init failed.\n";
+        }
+    }
 }
 
 Sender::~Sender() {
     stop();          // guarantees the worker thread exits before we destroy
-    WSACleanup();    // release the Winsock library reference
+    net::cleanupSockets();
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -42,7 +44,10 @@ bool Sender::start(const std::string& host, int port) {
     // IPPROTO_TCP  = explicitly choose TCP (not UDP)
     socket_ = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (socket_ == INVALID_SOCKET) {
-        std::cerr << "[Sender] socket() failed: " << WSAGetLastError() << "\n";
+        ++gBusErrorCounters.senderConnectFailures;
+        if (kVerboseBusLogs) {
+            std::cerr << "[Sender] socket() failed: " << net::lastError() << "\n";
+        }
         return false;
     }
 
@@ -56,13 +61,18 @@ bool Sender::start(const std::string& host, int port) {
     inet_pton(AF_INET, host.c_str(), &addr.sin_addr); // text IP -> binary
 
     if (::connect(socket_, (struct sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
-        std::cerr << "[Sender] connect() failed: " << WSAGetLastError() << "\n";
-        ::closesocket(socket_);
+        ++gBusErrorCounters.senderConnectFailures;
+        if (kVerboseBusLogs) {
+            std::cerr << "[Sender] connect() failed: " << net::lastError() << "\n";
+        }
+        net::closeSocket(socket_);
         socket_ = INVALID_SOCKET;
         return false;
     }
 
-    std::cout << "[Sender] Connected to " << host << ":" << port << "\n";
+    if (kVerboseBusLogs) {
+        std::cout << "[Sender] Connected to " << host << ":" << port << "\n";
+    }
 
     // ─── Start the background worker thread ──────────────────────────────────
     // CONCEPT 3 — std::thread with a lambda capturing 'this'
@@ -101,7 +111,7 @@ void Sender::stop() {
     }
 
     if (socket_ != INVALID_SOCKET) {
-        ::closesocket(socket_);
+        net::closeSocket(socket_);
         socket_ = INVALID_SOCKET;
     }
 }
@@ -190,7 +200,10 @@ bool Sender::sendRaw(const std::string& data) {
     while (totalSent < toSend) {
         int sent = ::send(socket_, ptr + totalSent, toSend - totalSent, 0);
         if (sent == SOCKET_ERROR) {
-            std::cerr << "[Sender] send() error: " << WSAGetLastError() << "\n";
+            ++gBusErrorCounters.senderSendFailures;
+            if (kVerboseBusLogs) {
+                std::cerr << "[Sender] send() error: " << net::lastError() << "\n";
+            }
             return false;
         }
         totalSent += sent;

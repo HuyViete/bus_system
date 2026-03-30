@@ -33,6 +33,7 @@ public:
     void setRoute(int route_id,
                   const std::vector<Waypoint>& waypoints,
                   int start_index,
+                  int vehicle_id,
                   Sender&   sender,    // ← push data to server
                   Database& db);       // ← store data locally first
 
