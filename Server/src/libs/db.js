@@ -1,13 +1,7 @@
-import dotenv from 'dotenv'
+// PostgreSQL connection pool singleton.
 import { Pool } from 'pg'
-dotenv.config()
+import config from '../config/index.js'
 
-const pool = new Pool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_DATABASE,
-    port: process.env.DB_PORT,
-})
+const pool = new Pool(config.db)
 
 export default pool

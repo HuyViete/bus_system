@@ -1,29 +1,23 @@
+// GET /api/events/* — analytics and live data endpoints.
 import { Router } from 'express'
-import {
-    getStopEvents,
-    getDwellStats,
-    getTrips,
-    getSpeedProfiles,
-    getHeadway,
-    getAnomalies,
-    getLivePositions,
-    getIngestionMetrics,
-} from '../controllers/queryController.js'
+import { getLivePositions }    from '../controllers/liveController.js'
+import { getStopEvents }      from '../controllers/stopEventController.js'
+import { getDwellStats }      from '../controllers/dwellController.js'
+import { getTrips }           from '../controllers/tripController.js'
+import { getSpeedProfiles }   from '../controllers/speedController.js'
+import { getHeadway }         from '../controllers/headwayController.js'
+import { getAnomalies }       from '../controllers/anomalyController.js'
+import { getIngestionMetrics } from '../controllers/metricsController.js'
 
 const router = Router()
 
-// Live map positions
-router.get('/live',      getLivePositions)
-
-// Derived event types
-router.get('/stops',     getStopEvents)    // ?route=1&stop_id=STOP-42&limit=100
-router.get('/dwell',     getDwellStats)    // ?route=1&stop_id=STOP-42
-router.get('/trips',     getTrips)         // ?vehicle_id=BUS-2003&route=1&status=completed
-router.get('/speed',     getSpeedProfiles) // ?route=1&hour_of_day=8
-router.get('/headway',   getHeadway)       // ?route=1&stop_id=STOP-42
-router.get('/anomalies', getAnomalies)     // ?vehicle_id=BUS-2003&anomaly_type=hard_brake&severity=warning
-
-// Ingestion benchmarking and before/after architecture comparisons
-router.get('/ingestion-metrics', getIngestionMetrics) // ?minutes=60&phase=baseline-http-postgres
+router.get('/live',              getLivePositions)
+router.get('/stops',             getStopEvents)
+router.get('/dwell',             getDwellStats)
+router.get('/trips',             getTrips)
+router.get('/speed',             getSpeedProfiles)
+router.get('/headway',           getHeadway)
+router.get('/anomalies',         getAnomalies)
+router.get('/ingestion-metrics', getIngestionMetrics)
 
 export default router

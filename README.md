@@ -1,19 +1,29 @@
 ## Statistics
-**I. Vehicles**
-- 2,100 buses running concurently
+### 1. Buses
+- 2,100 buses running concurrently
 - JSON data size: less than 500 Bytes / message
-- A message every 3 seconds to keep the system responsive
--> Peak Load: 2100 / 3 = **700 message / second** (2.520.000 message / day)
--> Peak Load: 700 * 500 Bytes = **350 KB / second** (1.260 MB / day)
+- Current bus tick: 1 message every second
 
-**II. Users**
+-> Peak Load: 2,100 / 1 = **2,100 messages / second**
+-> Daily volume: 2,100 * 86,400 = **181,440,000 messages / day**
+
+Estimated raw ingress storage from bus telemetry (upper bound using 500 Bytes/message):
+
+-> Per second: 2,100 * 500 = **1,050,000 Bytes / second** (~**1.05 MB/s**)
+-> Per minute: 1.05 MB * 60 = **63 MB / minute**
+-> Per hour: 63 MB * 60 = **3.78 GB / hour**
+-> Per day: 3.78 GB * 24 = **90.72 GB / day**
+
+Note: this is payload-only estimation. Real PostgreSQL disk usage will be higher due to indexes, WAL, row headers, and metadata.
+
+### 2. Users
 - 250,000 users daily (14 hours / day)
 - 80% users use the app during peak hours (assume 4 hours)
 -> Peak Load: 250,000 * 0.8 / 4 = 50,000 users / hour = ~ **14 users / second**
 -> 14 * 10 = **140 message / second**
 
--> Total: 700 + 140 = **840 message / second**
--> So the system must be able to handle at least **1000 requests / second**
+-> Total request pressure (bus ingress + user traffic): 2,100 + 140 = **2,240 requests / second**
+-> So the system should target at least **2,500 requests / second** baseline capacity.
 
 ## Architecture & Technologies
 
