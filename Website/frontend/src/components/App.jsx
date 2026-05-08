@@ -1,10 +1,10 @@
 import React from 'react'
 import BusMap from './BusMap'
 
-const App = () => {
+const App = ({ selectedRouteIds }) => {
     return (
         <div className='relative w-screen h-screen overflow-hidden'>
-            <BusMap />
+            <BusMap selectedRouteIds={selectedRouteIds} />
         </div>
     )
 }

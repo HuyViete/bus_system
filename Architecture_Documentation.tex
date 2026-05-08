@@ -1,0 +1,114 @@
+\documentclass[12pt, a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{xcolor}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    pdftitle={Big Data Transit System Documentation},
+}
+
+\title{\textbf{System Architecture \& Source Code Documentation}\\
+\large Big Data Transit System}
+\date{\vspace{-5ex}}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{System Overview}
+This project is a highly resilient, distributed, and event-driven Geographic Information System (GIS) designed to handle large-scale, real-time GPS telemetry from public transit vehicles (up to 2,100 buses concurrently). It is optimized to manage an ingestion peak of over 2,500 messages per second, ensuring smooth data flow from edge devices to web clients processing real-time graphics computations.
+
+The system is broken down into four core modules:
+\begin{enumerate}
+    \item \textbf{Edge Simulator (\texttt{Bus/}):} C++ application acting as the telemetry generator on individual buses.
+    \item \textbf{Core Ingestion Server (\texttt{Server/}):} High-throughput Node.js microservice absorbing writes, executing anomaly detection, and persisting to PostgreSQL/Kafka.
+    \item \textbf{Website BFF Backend (\texttt{Website/backend/}):} Node.js/Express API Gateway managing end-user queries, auth, and cache serving.
+    \item \textbf{Website Frontend (\texttt{Website/frontend/}):} React, MapLibre, and deck.gl frontend designed to GPU-render tens of thousands of dynamic map points 60 frames per second.
+    \item \textbf{Simulation Orchestrator (\texttt{simulation/}):} A Node.js controller for generating load/stream contexts.
+\end{enumerate}
+
+\section{Module Breakdown}
+
+\subsection{Edge Device Simulator (\texttt{Bus/})}
+\textbf{Technologies:} C++, standard threads, TCP Sockets, embedded SQLite.
+
+This C++ program instantiates multiple concurrent \texttt{Bus} instances running inside a single process, heavily parallelized.
+\begin{itemize}
+    \item \textbf{Lifecycle \& Sub-threads}:
+    \begin{itemize}
+        \item \textbf{GPS Thread}: Generates snapshot data per second reading from \texttt{routes.json}, interpolating coordinates.
+        \item \textbf{Database Thread (SQLite)}: Operates in WAL mode to buffer coordinates locally (\texttt{db/BUS-<id>.db}). Built to handle offline-first configurations. Contains optimization rules to not bottleneck I/O when simulating thousands of buses.
+        \item \textbf{Sender Thread}: Maintains a long-lived persistent TCP connection sending raw HTTP POST payloads (JSON) to the Ingestion Server, eliminating socket teardown overhead.
+        \item \textbf{Receiver Thread}: Listens on port 4000 for incoming remote commands (\texttt{STOP}, \texttt{REROUTE}).
+    \end{itemize}
+    \item \textbf{Fleet Manager (\texttt{main.cpp})}: A REPL environment that handles launching pools of vehicles (\texttt{start}, \texttt{stop}, \texttt{list}), distributing ID assignments mathematically.
+\end{itemize}
+
+\subsection{Core Ingestion Server ("Big Server") (\texttt{Server/})}
+\textbf{Technologies:} Node.js (Express), PostgreSQL (\texttt{pg}), Apache Kafka (\texttt{kafkajs}).
+
+Acting as the central nervous system, this module resides in \texttt{Server/}. Its foremost responsibility is to acknowledge incoming telemetry extremely fast and asynchronously process the rest.
+\begin{itemize}
+    \item \textbf{Ingestion Pipeline (\texttt{processGPS})}: Validates payload formats and returns a fast HTTP 200 to keep bus latency minimized. Generates analytics streams and routes them through \texttt{services/}.
+    \item \textbf{Stream Processing Capabilities}:
+    \begin{itemize}
+        \item Tracks trip lifecycles.
+        \item Detects anomalies: Hard-braking, speeding, GPS loss, off-route, and bunching.
+        \item Calculates geofence thresholds leading to exact dwell times, headways, and segment speed profiles.
+    \end{itemize}
+    \item \textbf{Data Persistence}:
+    \begin{itemize}
+        \item \textbf{Raw Telemetry}: Stored in \texttt{gps\_telemetry\_raw} representing the absolute history for machine learning and replay.
+        \item \textbf{Derived Analytics}: Stored in specialized tables.
+        \item \textbf{Live State}: The \texttt{gps\_latest} table is continuously upserted per vehicle to represent the "Now" position.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Web Platform - API Gateway (\texttt{Website/backend/})}
+\textbf{Technologies:} Node.js (Express), MongoDB (\texttt{mongoose}), JWT Auth.
+
+Instead of directly exposing the ingestion cluster, this component serves as a Backend-For-Frontend (BFF).
+\begin{itemize}
+    \item \textbf{User Authentication}: Backed by MongoDB utilizing \texttt{bcrypt} for password hashing and \texttt{jsonwebtoken} for session tracking.
+    \item \textbf{Query Aggregation}: It queries aggregated real-time metrics efficiently so the DOM isn't repeatedly doing complex lookups.
+\end{itemize}
+
+\subsection{Web Platform - UI (\texttt{Website/frontend/})}
+\textbf{Technologies:} React, TailwindCSS, Vite, MapLibre GL JS, deck.gl.
+
+Because standard mapping software crumbles rendering $>$2000 active nodes concurrently alongside 10,000 vertices mapping transit routes:
+\begin{itemize}
+    \item Hardware acceleration shifts calculation to the client GPU via WebGL using \textbf{deck.gl}.
+    \item Allows buttery-smooth 60fps animations for real-time map tracking.
+    \item Integrates geospatial sources to draw OpenStreetMap boundaries representing the exact 150 primary routes and 5,500 bus stations.
+\end{itemize}
+
+\section{Control \& Data Flow (End-to-End)}
+\begin{enumerate}
+    \item \textbf{Generation}: \texttt{Bus/} instances traverse predefined route vertices. Every second, a JSON packet containing vehicle data is encoded in C++.
+    \item \textbf{Transmission}: The C++ Sender pushes this packed JSON asynchronously via persistent HTTP POST over to the Core Ingestion Express app.
+    \item \textbf{Queue / Validation}: Express server replies instantaneously. Concurrently validates bounds and streams raw data into an Apache Kafka topic.
+    \item \textbf{Heavy Processing}: Background services inside the server ingest Kafka topics. They identify geometric bounds, detect anomalies, and write bulk payload insertions.
+    \item \textbf{Consumption}: As web clients interact with the \texttt{Website/} module, the request proxies through the BFF, fetches instantaneous points, and leverages MapLibre + deck.gl to visually render transit fleet flows dynamically.
+\end{enumerate}
+
+\section{Key Engineering Highlights}
+\begin{itemize}
+    \item \textbf{Persistent Network Connections}: The Edge devices do not drop and recreate sockets. Connection overhead vanishes. 
+    \item \textbf{Asymmetric Ingestion}: \texttt{Server/} acknowledges HTTP requests before inserting to PostgreSQL ensuring peak spikes won't back up Edge clients.
+    \item \textbf{I/O SQLite Limitations Avoided}: The Edge components utilize an active thread pool to balance load, preventing disk I/O locks from thousands of writes.
+    \item \textbf{GPU DOM Reliever}: deck.gl entirely circumvents the React VDOM to draw thousands of moving polygons efficiently.
+\end{itemize}
+
+\end{document}

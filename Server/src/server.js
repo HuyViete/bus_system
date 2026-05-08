@@ -8,6 +8,7 @@ import { requestLogger } from './middlewares/requestLogger.js'
 import { errorHandler } from './middlewares/errorHandler.js'
 import gpsRoutes from './routes/gps.js'
 import eventsRoutes from './routes/events.js'
+import dashboardRoutes from './routes/dashboard.js'
 
 const app = express()
 
@@ -15,8 +16,9 @@ app.use(express.json())
 app.use(requestLogger)
 
 // Mount routes.
-app.use('/api/gps',    gpsRoutes)
+app.use('/api/gps', gpsRoutes)
 app.use('/api/events', eventsRoutes)
+app.use('/dashboard', dashboardRoutes)
 app.get('/', (_req, res) => res.json({ status: 'ok' }))
 
 // Global error handler — must be last.
@@ -33,6 +35,7 @@ async function start() {
         console.log(`[Server] GPS ingestion  → POST /api/gps`)
         console.log(`[Server] Events query   → GET  /api/events/{live,stops,dwell,trips,speed,headway,anomalies}`)
         console.log(`[Server] Metrics query  → GET  /api/events/ingestion-metrics`)
+        console.log(`[Server] Dashboard      → GET  /api/dashboard/{,routes,live,anomalies,operations,ingestion}`)
     })
 }
 

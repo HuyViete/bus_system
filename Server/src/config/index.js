@@ -14,6 +14,11 @@ const config = Object.freeze({
     }),
     pipelinePhase: process.env.PIPELINE_PHASE || 'baseline-http-postgres',
     metricsFlushIntervalMs: Number(process.env.METRICS_FLUSH_MS) || 10000,
+    kafka: Object.freeze({
+        brokers: (process.env.KAFKA_BROKERS || 'localhost:9092').split(','),
+        groupId: process.env.KAFKA_GROUP_ID || 'server',
+        topic: process.env.KAFKA_TOPIC || 'gps-telemetry-raw',
+    }),
 })
 
 export default config
