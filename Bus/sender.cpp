@@ -1,42 +1,24 @@
 #include "sender.h"
 #include "runtime_config.h"
 #include "bus_stats.h"
+#include <iostream>
 #include <sstream>
 #include <iomanip>
 
-// =============================================================================
-//  CONCEPT 1 — Constructor / Destructor (RAII)
-//  "Resource Acquisition Is Initialization" is a core C++ idiom.
-//  The rule: if you OWN a resource (socket, file, lock), acquire it in the
-//  constructor and RELEASE it in the destructor.  That way the resource is
-//  always cleaned up even if an exception happens.
-// =============================================================================
 Sender::Sender()
     : socket_(INVALID_SOCKET), running_(false)
 {
     if (!net::initSockets()) {
-        if (kVerboseBusLogs) {
+        if (kVerboseBusLogs)
             std::cerr << "[Sender] socket stack init failed.\n";
-        }
     }
 }
 
 Sender::~Sender() {
-    stop();          // guarantees the worker thread exits before we destroy
+    stop();
     net::cleanupSockets();
 }
 
-// =============================================================================
-//  CONCEPT 2 — Persistent TCP Connection  ("Keep-Alive" pattern)
-//  The OLD code called connect() every time it wanted to send one packet, then
-//  closed the socket.  That is called a "short-lived" or "ephemeral" connection.
-//  Problem: every connect() burns a local port number (there are only ~16 000
-//  available by default on Windows).  With 2000 buses each sending once/second
-//  that exhausts the port pool in under 10 seconds.
-//
-//  The FIX: connect ONCE, keep the socket OPEN, reuse it for every send.
-//  This is exactly how HTTP/1.1 "Connection: keep-alive" works.
-// =============================================================================
 bool Sender::start(const std::string& host, int port) {
     socket_ = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (socket_ == INVALID_SOCKET) {
@@ -68,9 +50,6 @@ bool Sender::start(const std::string& host, int port) {
     return true;
 }
 
-// =============================================================================
-//  CONCEPT 4 — Graceful Shutdown with join()
-// =============================================================================
 void Sender::stop() {
     {
         std::lock_guard<std::mutex> lock(mtx_);
@@ -87,9 +66,6 @@ void Sender::stop() {
     }
 }
 
-// =============================================================================
-//  CONCEPT 5 — Producer / Consumer with mutex + condition_variable
-// =============================================================================
 void Sender::enqueueGPS(const GPSData& data) {
     std::string payload = serializeGPS(data);
     {
@@ -116,15 +92,14 @@ void Sender::sendLoop() {
 bool Sender::sendRaw(const std::string& data) {
     if (socket_ == INVALID_SOCKET) return false;
 
-    std::string body = data;
     std::ostringstream req;
     req << "POST /api/gps HTTP/1.1\r\n"
         << "Host: 127.0.0.1\r\n"
         << "Content-Type: application/json\r\n"
-        << "Content-Length: " << body.size() << "\r\n"
+        << "Content-Length: " << data.size() << "\r\n"
         << "Connection: keep-alive\r\n"
         << "\r\n"
-        << body;
+        << data;
 
     std::string reqStr = req.str();
     int totalSent = 0;
@@ -147,37 +122,32 @@ bool Sender::sendRaw(const std::string& data) {
     return true;
 }
 
-// =============================================================================
-//  serializeGPS() — convert a GPSData struct to a JSON HTTP body.
-//
-//  EDGE ANOMALIES:
-//  If the GPS edge detector found anomalies (hard_brake, speeding), they are
-//  stored in data.edgeAnomalies and serialised here as a JSON array:
-//    "edge_anomalies": ["speeding"]
-//  An empty vector produces:
-//    "edge_anomalies": []
-//  The server reads this field. If non-empty, it skips its own anomaly check
-//  for those types and persists the pre-computed flag directly — saving 2-3
-//  DB queries per packet.
-// =============================================================================
 std::string Sender::serializeGPS(const GPSData& d) {
     std::ostringstream ss;
     ss << std::fixed << std::setprecision(6)
        << "{\"vehicle_id\":\"" << d.vehicle_id << "\","
-       << "\"route\":"         << d.route       << ","
-       << "\"latitude\":"      << d.latitude    << ","
-       << "\"longitude\":"     << d.longitude   << ","
-       << "\"speed\":"         << d.speed       << ","
-       << "\"heading\":"       << d.heading     << ","
-       << "\"timestamp\":"     << d.timestamp   << ","
-       << "\"synced\":"        << d.synced      << ","
+       << "\"route\":" << d.route << ","
+       << "\"latitude\":" << d.latitude << ","
+       << "\"longitude\":" << d.longitude << ","
+       << "\"speed\":" << std::setprecision(1) << d.speed << ","
+       << "\"heading\":" << std::setprecision(1) << d.heading << ","
+       << "\"timestamp\":" << d.timestamp << ","
        << "\"edge_anomalies\":[";
 
     for (size_t i = 0; i < d.edgeAnomalies.size(); ++i) {
         if (i > 0) ss << ",";
         ss << "\"" << d.edgeAnomalies[i] << "\"";
     }
-    ss << "]}";
+    ss << "]";
 
+    if (!d.stopEvent.empty()) {
+        ss << ",\"stop_event\":\"" << d.stopEvent << "\""
+           << ",\"stop_event_id\":" << d.stopEventId;
+        if (d.stopEvent == "departure") {
+            ss << std::setprecision(1) << ",\"dwell_seconds\":" << d.dwellSeconds;
+        }
+    }
+
+    ss << "}";
     return ss.str();
 }

@@ -29,6 +29,7 @@ typedef int SOCKET;
 #endif
 
 namespace net {
+
 inline bool initSockets() {
 #ifdef _WIN32
     WSADATA wsa;
@@ -59,6 +60,7 @@ inline void closeSocket(SOCKET s) {
     close(s);
 #endif
 }
+
 } // namespace net
 
 #endif // NET_COMPAT_H

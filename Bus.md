@@ -1,219 +1,146 @@
-# Bus Module Flow (How the Bus System Works)
+# Bus Module — Edge Computing Architecture
+
+The C++ Bus simulator in `Bus/` models a fleet of edge devices that generate realistic telemetry with pre-computed events and anomalies.
+
+## Architecture
+
+Each Bus is an edge device that owns:
+- **SpeedSimulator** — state machine producing realistic speed, events, and anomalies
+- **Sender** — persistent TCP connection to server data port (3000)
+- **Receiver** — persistent TCP connection to server command port (4000)
+- **GPS** — 3-second tick loop using route waypoints + SpeedSimulator
+- **Database** — optional local SQLite buffer per bus
+
+## File Structure
+
+```
+Bus/
+├── main.cpp           Fleet manager: REPL, spawn/stop, parallel management
+├── bus.h / bus.cpp     Bus class: owns all components, lifecycle management
+├── gps.h / gps.cpp     GPS loop: 3s tick, edge filter, builds enriched packets
+├── speed_sim.h         Event-first speed state machine (DrivingState FSM)
+├── sender.h / .cpp     Producer-consumer queue → HTTP POST /api/gps
+├── receiver.h / .cpp   Persistent TCP to command port, handles STOP/REROUTE
+├── database.h / .cpp   Per-bus SQLite buffer (WAL mode)
+├── types.h             GPSData and SensorData structs
+├── runtime_config.h    Compile-time toggles
+├── route_loader.h      Loads routes.json into RouteMap
+├── station_loader.h    Loads stations.json, finds nearby stops per route
+├── bus_stats.h         Atomic error counters for fleet diagnostics
+├── net_compat.h        Cross-platform socket abstraction
+├── routes.json         Route waypoints (340 routes)
+└── stations.json       Bus stops (~5,500 stations from OSM)
+```
+
+## Edge Computing: Event-First Simulation
+
+The bus generates events first, then adjusts speed to match — not the other way around.
+
+### DrivingState Machine
+
+```
+CRUISING ──→ HARD_BRAKING ──→ ACCELERATING ──→ CRUISING
+    │                                              ↑
+    ├──→ SPEEDING ──→ DECELERATING ────────────────┘
+    │                                              ↑
+    └──→ DECELERATING (approach stop) ──→ STOPPED_AT_STATION ──→ ACCELERATING
+```
+
+States:
+- **CRUISING**: 15–45 km/h with small noise
+- **ACCELERATING**: +3 km/h per tick toward target
+- **DECELERATING**: -4 km/h per tick toward target
+- **HARD_BRAKING**: sudden drop of 25–40 km/h, emits `hard_brake` anomaly
+- **SPEEDING**: 82–100 km/h for 3–8 ticks, emits `speeding` anomaly
+- **STOPPED_AT_STATION**: speed = 0 for 8–30 seconds, emits `arrival`/`departure` events
+
+### What the Edge Computes
+
+| Computation | Output | Server Impact |
+|---|---|---|
+| Hard brake | `edge_anomalies: ["hard_brake"]` | Server skips re-detection |
+| Speeding | `edge_anomalies: ["speeding"]` | Server skips re-detection |
+| Stop arrival | `stop_event: "arrival"` | Server writes event + headway |
+| Stop departure + dwell | `stop_event: "departure", dwell_seconds: N` | Server writes event + dwell |
+
+### What Stays on the Server
+
+- **Headway / bunching** — requires cross-bus data
+- **GPS loss** — edge can't detect its own absence
+- **Off-route** — requires route geometry (future: transit graph)
+- **Trip lifecycle** — central trip table
+
+## Enriched Packet Format
+
+```json
+{
+  "vehicle_id": "3001",
+  "route": 3,
+  "latitude": 10.7526,
+  "longitude": 106.6694,
+  "speed": 28.5,
+  "heading": 185.3,
+  "timestamp": 1747384800,
+  "edge_anomalies": [],
+  "stop_event": "arrival",
+  "stop_event_id": 383552890
+}
+```
+
+On departure:
+```json
+{
+  "stop_event": "departure",
+  "stop_event_id": 383552890,
+  "dwell_seconds": 18.0
+}
+```
+
+## Startup Flow
+
+1. `main()` loads `routes.json` (340 routes) and `stations.json` (~5,500 stops)
+2. Per-route stop zones are cached (stations within 200m of any route waypoint)
+3. Each spawned Bus receives its route waypoints + nearby stop zones
+4. SpeedSimulator initialized with stop zones for station detection
 
-This document explains the runtime flow of the C++ Bus simulator in `Bus/`.
+## Bus ID Scheme
 
-## 1) High-level architecture
+`vehicle_id = route_id × 1000 + sequence`
 
-The system runs many Bus objects inside one process. Each Bus represents one edge device and owns 4 components:
+Examples: route 3, bus 1 → 3001 | route 11, bus 2 → 11002
 
-- Sender: sends telemetry to server data endpoint (TCP to port 3000).
-- Receiver: listens for server commands (TCP to port 4000).
-- GPS: generates location snapshots every second based on route waypoints.
-- Database: local SQLite buffer per bus (`db/BUS-<id>.db`) for offline-first storage.
+## Edge Filter
 
-Global manager in `main.cpp` keeps:
+Packets are only sent when:
+- First packet (register bus on server)
+- Moved > 5m
+- Speed changed > 3 km/h
+- 30-second heartbeat (10 ticks)
+- Anomaly detected
+- Stop event occurred
 
-- `active_buses`: list of currently running Bus instances.
-- `route_counters`: per-route counters used to generate unique bus IDs.
+## Threading Model
 
-## 2) Startup flow
+Per active bus: 3 threads (GPS loop, Sender worker, Receiver worker).
+Plus temporary thread pools for parallel spawn/stop operations.
 
-Program entry is in `Bus/main.cpp`:
+## Build & Run
 
-1. `main()` loads routes from `routes.json` using `loadRoutes()`.
-2. If command-line args exist, it runs one command (`start`, `stop`, `list`) in non-interactive mode.
-3. Otherwise it starts an interactive REPL loop.
-4. On exit, it gracefully stops all remaining buses in parallel.
+```bash
+# From project root
+build.bat          # Compiles Bus/bus.exe
+run.bat            # Starts the fleet manager REPL
 
-Server defaults are fixed in code:
+# REPL commands
+start -n 100              # Spawn 100 buses across all routes
+start -r 3 -n 10          # Spawn 10 buses on route 3
+list                      # Show active buses
+stop -a                   # Stop all buses
+exit                      # Shut down
+```
 
-- Host: `127.0.0.1`
-- Data port (Sender): `3000`
-- Command port (Receiver): `4000`
+## Server Compatibility
 
-## 3) Command parsing and dispatch
-
-User input is tokenized and dispatched by `dispatch()`:
-
-- `start ...` -> `cmdStart(...)`
-- `stop ...` -> `cmdStop(...)`
-- `list` -> `cmdList()`
-- `exit/quit` -> terminate loop
-
-Flags are parsed into a map, for example:
-
-- `-a` -> boolean flag
-- `-r 1 -n 10` -> key/value flags
-
-## 4) Bus creation flow (`start`)
-
-### 4.1 Build spawn plan
-
-`cmdStart()` first builds a flat work list of `(route_id, start_waypoint)` pairs:
-
-- `start -r <route> -n <count>`:
-	all buses on one route, spread across waypoints.
-- `start -n <count>`:
-	distribute buses across all routes (balanced, with remainder on first routes).
-
-### 4.2 Parallel spawning
-
-`spawnParallel()` divides work across hardware threads and calls `spawnBus()` concurrently.
-
-Why this matters:
-
-- Bus creation is slow (SQLite open + two TCP connects).
-- Parallel construction reduces total startup time significantly.
-
-### 4.3 Per-bus ID generation
-
-`nextBusId(route_id)` returns:
-
-`vehicle_id = route_id * 1000 + sequence`
-
-Examples:
-
-- route 3, first bus -> 3001
-- route 11, second bus -> 11002
-
-## 5) Inside one Bus instance
-
-`Bus::Bus(...)` calls `start(...)`, which does:
-
-1. Open local SQLite DB: `db/BUS-<vehicle_id>.db` (only when `kEnableLocalDatabase` is `true`)
-2. Start Sender connection to data port
-3. Start Receiver connection to command port
-4. Configure GPS with route waypoints + Sender + Database references
-5. Start GPS loop on dedicated thread
-
-If Sender/Receiver cannot connect, Bus keeps running with warnings (offline-friendly behavior).
-
-## 6) Runtime telemetry loop (every 1 second)
-
-`GPS::start()` runs continuously while `running_ == true`:
-
-1. Build one `GPSData` snapshot from current waypoint.
-2. Insert row into local SQLite (`synced = 0`) only when `kEnableLocalDatabase` is `true`.
-3. Enqueue same snapshot to Sender queue (non-blocking from GPS perspective).
-4. Move to next waypoint (wrap around at route end).
-5. Sleep 1 second.
-
-### Snapshot fields
-
-`GPSData` contains:
-
-- `vehicle_id`
-- `route`
-- `latitude`, `longitude`
-- `speed`, `heading`
-- `timestamp`
-- `synced`
-
-Implementation detail currently in code:
-
-- `vehicle_id` now uses the unique bus instance ID generated by fleet manager (`route_id * 1000 + sequence`), for example `11001` = first bus on route `11`.
-
-## 7) Sending data to server
-
-`Sender` uses a producer-consumer model:
-
-- Producer: GPS thread calls `enqueueGPS()`.
-- Consumer: Sender worker thread (`sendLoop()`) drains queue.
-
-Send behavior:
-
-1. Serialize `GPSData` to JSON.
-2. Build raw HTTP POST request to `/api/gps`.
-3. Send via one persistent TCP socket (`Connection: keep-alive`).
-4. Read and discard HTTP response to keep socket healthy.
-
-Important design choice:
-
-- One long-lived socket per bus avoids frequent connect/close cycles and port exhaustion.
-
-## 8) Receiving commands from server
-
-`Receiver` also keeps one persistent client socket to command server.
-
-- Worker thread blocks on `recv()`.
-- On message arrival, it trims and calls `handleCommand()`.
-
-Currently recognized command strings:
-
-- `STOP`
-- `REROUTE <route>`
-
-Current status:
-
-- Both commands are logged, but actual bus state update is marked TODO.
-
-## 9) Local database behavior
-
-`Database` opens one SQLite file per bus and creates tables if missing:
-
-- `gps_data`
-- `sensor_data`
-
-Both include `synced` field (default 0) to support future sync/retry logic.
-
-SQLite details used:
-
-- WAL mode enabled (`PRAGMA journal_mode=WAL`)
-- prepared statements for inserts
-- indexes on sync/timestamp columns
-
-Load-test switch:
-
-- Local DB can be disabled globally with `kEnableLocalDatabase` in `Bus/runtime_config.h`.
-- When disabled, buses do not open SQLite files and do not write GPS rows, so load tests focus on network + server ingestion throughput.
-
-## 10) Stop and shutdown flow
-
-### 10.1 Runtime stop command
-
-`cmdStop()` supports:
-
-- `stop -a` (all buses)
-- `stop -i <id>` (by vehicle ID)
-- `stop -b <index>` (by list index)
-- `stop -r <route> -n <count>` (latest N on route)
-- `stop -n <count>` (latest N globally)
-
-It first extracts target buses from `active_buses` quickly under mutex, then releases lock and stops selected buses in parallel.
-
-### 10.2 Per-bus stop order
-
-`Bus::stop()` executes in safe dependency order:
-
-1. Stop GPS loop signal
-2. Join GPS thread
-3. Stop Sender thread + close socket
-4. Stop Receiver thread + close socket
-5. Close SQLite DB
-
-### 10.3 Process exit
-
-When program exits (`exit`/`quit` or after non-interactive run), `main()` stops all remaining buses in parallel and prints final shutdown message.
-
-## 11) Threading model summary
-
-Per active bus:
-
-- 1 GPS thread (owned by Bus)
-- 1 Sender worker thread
-- 1 Receiver worker thread
-
-Plus manager-side temporary thread pools for bulk spawn/stop operations.
-
-## 12) End-to-end data path summary
-
-Route waypoint -> GPS snapshot -> SQLite insert (local durability) -> Sender queue -> HTTP POST over persistent TCP -> server response consumed.
-
-This gives an offline-first edge flow where each bus can continue producing and buffering telemetry even when network/server availability is unstable.
-
-## 13) Training data storage
-
-The server now also stores every accepted GPS packet in a central append-only PostgreSQL table `gps_telemetry_raw`.
-
-- Edge (bus SQLite): short-term resilience buffer when network is unstable.
-- Server (`gps_telemetry_raw`): fleet-wide historical source for model training and data analysis.
+The server handles both packet formats:
+- **New (edge-computed)**: `stop_event` and `edge_anomalies` present → server persists directly, only runs server-only detection (gps_loss, off_route)
+- **Legacy**: fields missing → server runs full detection pipeline (backward compatible)

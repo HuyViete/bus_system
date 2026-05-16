@@ -15,11 +15,11 @@ struct GPSData {
     int64_t     timestamp;
     int         synced;
 
-    // Edge-computed anomaly flags.
-    // Populated by GPS before enqueueing; empty vector = no anomaly detected.
-    // Serialised by Sender into "edge_anomalies": ["hard_brake"] etc.
-    // The server reads this and skips its own check for these anomaly types.
     std::vector<std::string> edgeAnomalies;
+
+    std::string stopEvent;
+    int         stopEventId   = -1;
+    double      dwellSeconds  = 0;
 };
 
 struct SensorData {
