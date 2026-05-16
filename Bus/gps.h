@@ -12,6 +12,7 @@
 #include "route_loader.h"
 #include "types.h"
 #include "speed_sim.h"
+#include "edge_geo.h"
 
 class Sender;
 class Database;
@@ -52,6 +53,7 @@ public:
                   Database& db);
 
     void setStops(const std::vector<StopZone>& stops);
+    void setRouteGraph(const RouteGraph& graph);
 
     void start();
     void stop();
@@ -68,6 +70,8 @@ private:
 
     EdgeFilterState  filter_;
     SpeedSimulator   speedSim_;
+    RouteGraph       routeGraph_;
+    bool             hasRouteGraph_ = false;
 
     GPSData buildSnapshot(const SpeedSimulator::TickResult& tick);
 };

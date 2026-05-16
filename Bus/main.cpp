@@ -13,6 +13,7 @@
 #include "bus_stats.h"
 #include "route_loader.h"
 #include "station_loader.h"
+#include "transit_graph_loader.h"
 
 static constexpr const char* SERVER_HOST = "127.0.0.1";
 static constexpr int DATA_PORT = 3000;
@@ -33,6 +34,8 @@ std::mutex             progress_mutex;
 std::vector<StopZone>  all_stops;
 std::map<int, std::vector<StopZone>> route_stops_cache;
 std::mutex             stops_cache_mutex;
+
+TransitGraphMap        transit_graphs;
 
 int nextBusId(int route_id) {
     std::lock_guard<std::mutex> lock(counters_mutex);
@@ -100,8 +103,12 @@ int spawnBus(int route_id, int start_waypoint, RouteMap& routes) {
     int bus_id = nextBusId(route_id);
     const auto& stops = getRouteStops(route_id, waypoints);
 
+    const RouteGraph* graphPtr = nullptr;
+    auto git = transit_graphs.find(route_id);
+    if (git != transit_graphs.end()) graphPtr = &git->second;
+
     auto bus = std::make_unique<Bus>(bus_id, route_id, waypoints, start_waypoint,
-                                     SERVER_HOST, DATA_PORT, CMD_PORT, stops);
+                                     SERVER_HOST, DATA_PORT, CMD_PORT, stops, graphPtr);
 
     {
         std::lock_guard<std::mutex> lock(buses_mutex);
@@ -353,6 +360,9 @@ int main(int argc, char* argv[]) {
     auto stations = loadStations("stations.json");
     all_stops = stationsToStopZones(stations);
     std::cout << "[main] Loaded " << all_stops.size() << " stations.\n";
+
+    transit_graphs = loadTransitGraph("transit_graph.json");
+    std::cout << "[main] Loaded transit graph for " << transit_graphs.size() << " routes.\n";
 
     if (argc > 1) {
         std::vector<std::string> tokens(argv + 1, argv + argc);

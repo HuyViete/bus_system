@@ -32,6 +32,11 @@ void GPS::setStops(const std::vector<StopZone>& stops) {
     speedSim_.setStops(stops);
 }
 
+void GPS::setRouteGraph(const RouteGraph& graph) {
+    routeGraph_ = graph;
+    hasRouteGraph_ = !graph.cumulativeDist.empty();
+}
+
 void GPS::start() {
     if (waypoints_.empty()) return;
 
@@ -104,5 +109,13 @@ GPSData GPS::buildSnapshot(const SpeedSimulator::TickResult& tick) {
     d.stopEvent     = tick.stopEvent;
     d.stopEventId   = tick.stopEventId;
     d.dwellSeconds  = tick.dwellSeconds;
+
+    if (hasRouteGraph_) {
+        DistanceResult geo = computeDistances(routeGraph_, wp_index_);
+        d.distAlongRoute = geo.distAlongRoute;
+        d.nextStopId     = geo.nextStopId;
+        d.distToNextStop = geo.distToNextStop;
+    }
+
     return d;
 }

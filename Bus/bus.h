@@ -10,6 +10,7 @@
 #include "gps.h"
 #include "route_loader.h"
 #include "speed_sim.h"
+#include "edge_geo.h"
 
 class Bus {
 public:
@@ -20,7 +21,8 @@ public:
         const std::string& server_host,
         int data_port,
         int cmd_port,
-        const std::vector<StopZone>& stops = {});
+        const std::vector<StopZone>& stops = {},
+        const RouteGraph* routeGraph = nullptr);
 
     ~Bus();
     void stop();
@@ -38,7 +40,8 @@ private:
 
     void start(const std::string& host, int data_port, int cmd_port,
                const std::vector<Waypoint>& waypoints, int start_index,
-               const std::vector<StopZone>& stops);
+               const std::vector<StopZone>& stops,
+               const RouteGraph* routeGraph);
 };
 
 #endif // BUS_H

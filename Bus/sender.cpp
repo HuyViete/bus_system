@@ -148,6 +148,18 @@ std::string Sender::serializeGPS(const GPSData& d) {
         }
     }
 
+    if (d.distAlongRoute >= 0) {
+        ss << std::setprecision(1)
+           << ",\"dist_along_route\":" << d.distAlongRoute;
+    }
+    if (d.nextStopId >= 0) {
+        ss << ",\"next_stop_id\":" << d.nextStopId;
+    }
+    if (d.distToNextStop >= 0) {
+        ss << std::setprecision(1)
+           << ",\"dist_to_next_stop\":" << d.distToNextStop;
+    }
+
     ss << "}";
     return ss.str();
 }

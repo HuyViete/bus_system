@@ -9,7 +9,8 @@ Bus::Bus(int vehicle_id,
          const std::string& server_host,
          int data_port,
          int cmd_port,
-         const std::vector<StopZone>& stops)
+         const std::vector<StopZone>& stops,
+         const RouteGraph* routeGraph)
     : vehicle_id_(vehicle_id),
       route_id_(route_id),
       sender_(),
@@ -17,7 +18,7 @@ Bus::Bus(int vehicle_id,
       gps_(),
       db_()
 {
-    start(server_host, data_port, cmd_port, waypoints, start_index, stops);
+    start(server_host, data_port, cmd_port, waypoints, start_index, stops, routeGraph);
 }
 
 Bus::~Bus() {
@@ -29,7 +30,8 @@ void Bus::start(const std::string& host,
                 int cmd_port,
                 const std::vector<Waypoint>& waypoints,
                 int start_index,
-                const std::vector<StopZone>& stops)
+                const std::vector<StopZone>& stops,
+                const RouteGraph* routeGraph)
 {
     if (kVerboseBusLogs)
         std::cout << "[Bus " << vehicle_id_ << "] Starting on route " << route_id_ << "\n";
@@ -42,6 +44,8 @@ void Bus::start(const std::string& host,
 
     gps_.setRoute(route_id_, waypoints, start_index, vehicle_id_, sender_, db_);
     gps_.setStops(stops);
+    if (routeGraph)
+        gps_.setRouteGraph(*routeGraph);
 
     gps_thread_ = std::thread(&GPS::start, &gps_);
 

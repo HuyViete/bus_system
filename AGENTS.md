@@ -26,15 +26,18 @@ BigData/
 ├── Website/
 │   ├── frontend/           # React + Vite + TailwindCSS + MapLibre GL + deck.gl
 │   └── backend/            # Node.js BFF (Express + MongoDB + JWT auth)
+├── scripts/                # Data pipeline scripts (transit graph generation)
 ├── simulation/             # Node.js simulation controller (placeholder, mostly empty)
 ├── Station/                # Empty — reserved for station data processing
 ├── benchmark/              # Shell scripts for load testing the ingestion pipeline
 ├── read/                   # Data reading utilities
-├── Bus.md                  # Bus module runtime flow documentation
+├── Bus.md                  # Bus module & edge computing documentation
 ├── Server.md               # Server module & database schema documentation
 ├── README.md               # Architecture overview & statistics
 ├── Installation.md         # Build & run instructions
-└── build.sh                # Cross-platform build script for Bus/ (C++ → bus.exe)
+├── build.bat               # Windows build script for Bus/ (C++ → bus.exe)
+├── build.sh                # Linux/WSL build script for Bus/ (C++ → bus.exe)
+└── run.bat                 # Windows run script for bus fleet manager
 ```
 
 ---
@@ -43,29 +46,35 @@ BigData/
 
 ### 3.1 Bus (C++ Edge Devices) — `Bus/`
 
-**Language:** C++17 | **Build:** `g++` via `build.sh` → `bus.exe` | **Deps:** SQLite3, Winsock2
+**Language:** C++17 | **Build:** `build.bat` (Windows) or `build.sh` (Linux) → `bus.exe` | **Deps:** SQLite3, Winsock2
 
 **Key files:**
 | File | Purpose |
 |---|---|
 | `main.cpp` | Fleet manager: REPL, spawn/stop commands, parallel bus management |
 | `bus.h/cpp` | Bus class: owns Sender, Receiver, GPS, Database; lifecycle management |
-| `gps.h/cpp` | GPS loop: 3-second tick, edge filtering, edge anomaly detection |
+| `gps.h/cpp` | GPS loop: 3-second tick, edge filtering, distance computation |
+| `speed_sim.h` | Event-first speed state machine (DrivingState FSM) |
+| `edge_geo.h` | Distance computation using precomputed route graph |
+| `transit_graph_loader.h` | Loads `transit_graph.json` into C++ RouteGraph structs |
+| `station_loader.h` | Loads `stations.json`, finds nearby stops per route |
 | `sender.h/cpp` | Producer-consumer queue → HTTP POST `/api/gps` over persistent TCP |
 | `receiver.h/cpp` | Persistent TCP to command port 4000, handles STOP/REROUTE commands |
 | `database.h/cpp` | Per-bus SQLite buffer (`db/BUS-<id>.db`), WAL mode |
 | `types.h` | `GPSData` and `SensorData` structs |
 | `runtime_config.h` | Compile-time toggles: `kEnableLocalDatabase`, `kVerboseBusLogs` |
-| `route_loader.h` | Loads `routes.json` into `vector<Route>` with waypoints |
+| `route_loader.h` | Loads `routes.json` into `RouteMap` with waypoints |
 | `net_compat.h` | Cross-platform socket abstraction (Winsock/POSIX) |
 
 **Key behaviors:**
+- **Event-first simulation:** Speed state machine (`SpeedSimulator`) generates events (hard_brake, speeding, stop arrival/departure) first, then adjusts speed to match. Produces realistic telemetry patterns.
+- **Edge distance computation:** Each bus loads its route's precomputed transit graph (`transit_graph.json`) and computes `dist_along_route`, `next_stop_id`, and `dist_to_next_stop` via O(1) lookups.
+- **Edge stop detection:** SpeedSimulator detects station proximity and generates arrival/departure events with dwell times.
 - **Bus ID scheme:** `vehicle_id = route_id × 1000 + sequence` (e.g., route 11, 2nd bus → `11002`).
-- **Edge filtering:** Only sends packets when: first packet, moved >5m, speed changed >3 km/h, 30s heartbeat, or anomaly detected. Reduces server load significantly.
-- **Edge anomaly detection:** Detects `hard_brake` (speed drop ≥20 km/h) and `speeding` (>80 km/h) on the bus itself. Attaches as `edgeAnomalies` array on the packet so the server skips redundant checks.
+- **Edge filtering:** Only sends packets when: first packet, moved >5m, speed changed >3 km/h, 30s heartbeat, anomaly, or stop event.
 - **Threading:** 3 threads per bus (GPS loop, Sender worker, Receiver worker) + temp thread pools for bulk spawn/stop.
-- **Offline-first:** Bus keeps running with warnings if server is unreachable. Local SQLite buffer stores unsynced data (when enabled).
-- **GPS tick rate:** 3 seconds (`std::this_thread::sleep_for(std::chrono::seconds(3))`).
+- **Offline-first:** Bus keeps running with warnings if server is unreachable.
+- **GPS tick rate:** 3 seconds.
 
 **Packet format (JSON sent by Sender):**
 ```json
@@ -75,9 +84,14 @@ BigData/
   "latitude": 10.7721,
   "longitude": 106.6579,
   "speed": 32.5,
-  "heading": 180,
+  "heading": 185.3,
   "timestamp": 1747387200,
-  "edge_anomalies": ["hard_brake"]
+  "edge_anomalies": ["hard_brake"],
+  "dist_along_route": 4250.3,
+  "next_stop_id": 383552890,
+  "dist_to_next_stop": 320.7,
+  "stop_event": "arrival",
+  "stop_event_id": 383552890
 }
 ```
 
@@ -130,15 +144,23 @@ BigData/
 - `stopList` — Array of all stops loaded from PostgreSQL at startup.
 
 **Processing pipeline (per packet):**
+
+Edge-computed path (new packets with `edge_anomalies`/`stop_event`/`dist_along_route`):
 1. Get/create `VehicleState`
-2. Run in parallel: persist raw telemetry, upsert live state, detect anomalies, detect stop events
+2. Persist raw telemetry, upsert live state (with distance fields), persist edge anomalies, persist edge stop events + headway
+3. Run server-only detection: `gps_loss`, `off_route`
+4. Update in-memory position
+
+Legacy path (old packets without edge fields):
+1. Get/create `VehicleState`
+2. Persist raw telemetry, upsert live state, full anomaly detection, full stop detection
 3. Update in-memory position
 
 **PostgreSQL tables (9 tables + migration history):**
 | Table | Purpose | Key behavior |
 |---|---|---|
 | `gps_telemetry_raw` | Append-only raw history for ML training | Unique index on `(vehicle_id, device_timestamp)` |
-| `gps_latest` | One row per bus, latest position | Upsert by `vehicle_id` |
+| `gps_latest` | One row per bus, latest position + edge distances | Upsert by `vehicle_id`, includes `dist_along_route`, `next_stop_id`, `dist_to_next_stop` |
 | `stop_events` | Arrival/departure events at stops | Written by stop detection |
 | `dwell_times` | Duration bus spent at each stop | `departed_at - arrived_at` |
 | `trip_logs` | Trip lifecycle (in_progress/completed/aborted) | Updated on stop visits |
@@ -296,13 +318,18 @@ Website Backend (BFF)
 ## 5. Current Implementation Status
 
 ### ✅ Working
-- Full bus fleet simulator with edge filtering and edge anomaly detection
+- Event-first speed simulation with DrivingState FSM on edge
+- Edge-computed anomalies (hard_brake, speeding) — server skips re-detection
+- Edge-computed stop detection (arrival, departure, dwell times)
+- Edge-computed distances (dist_along_route, next_stop_id, dist_to_next_stop)
+- Precomputed transit graph generation (`scripts/build_transit_graph.js`)
+- Dual processing pipeline: edge-computed path + legacy backward-compatible path
+- Full bus fleet simulator with edge filtering
 - GPS ingestion pipeline (HTTP POST → async processing → PostgreSQL)
 - Raw telemetry persistence with deduplication
-- Live vehicle state tracking (in-memory + `gps_latest` table)
-- Anomaly detection (hard_brake, speeding, gps_loss, off_route, bunching)
-- Stop arrival/departure detection with geofencing
-- Dwell time, headway, and speed profile computation
+- Live vehicle state tracking (in-memory + `gps_latest` table with distance fields)
+- Server-only anomaly detection (gps_loss, off_route, bunching)
+- Headway computation from edge stop events
 - Trip lifecycle management (start, complete, abort, stale cleanup)
 - Ingestion metrics tracking per minute with phase segmentation
 - Dashboard API endpoints with comprehensive analytics
@@ -314,8 +341,8 @@ Website Backend (BFF)
 - Benchmark scripts for progressive load testing
 
 ### 🚧 Stubs / Incomplete
-- `estimateService.js` — `getEstimateTime()` and `getTrafficStatus()` are empty functions
-- `distanceService.js` — `getNearestStop()` is empty
+- `estimateService.js` — `getEstimateTime()` and `getTrafficStatus()` are empty (distance data now available for implementation)
+- `distanceService.js` — `getNearestStop()` is empty (edge now computes this)
 - `estimateController.js` — Returns hardcoded placeholder values
 - `events.js` route — References undefined `saveStopEvent` function on line 23 (**BUG**)
 - `Receiver` commands (STOP/REROUTE) — Logged but no actual bus state update
@@ -327,9 +354,9 @@ Website Backend (BFF)
 - **Redis:** No Redis dependency yet. `gps_latest` in PostgreSQL is the current fallback. Goal: O(1) live reads.
 - **Apache Spark:** No presence yet. Goal: offline batch feature generation.
 - **WebSocket push:** Frontend currently polls. Upgrade path: replace `useLiveBuses` polling with `socket.on('bus:update')`.
+- ETA computation using edge distances + historical speed profiles
 - Sync/retry logic for bus-side SQLite buffer
-- Event-driven packet structure (enriched with geospatial context from edge)
-- Edge geospatial processing (route snapping, stop detection on-device)
+- Server-to-bus alternative route push via REROUTE command
 
 ---
 
@@ -354,8 +381,9 @@ Website Backend (BFF)
 
 ```
 Route waypoint (C++)
-  → GPS::buildSnapshot()
-  → EdgeAnomalyDetector::check()
+  → SpeedSimulator::tick() — event-first state machine
+  → GPS::buildSnapshot() — attach speed, anomalies, stop events
+  → computeDistances() — edge distance from transit graph
   → EdgeFilterState decision (send/drop)
   → SQLite insert (if enabled)
   → Sender queue (enqueueGPS)
@@ -363,15 +391,17 @@ Route waypoint (C++)
   → Server validateGPS middleware
   → gpsController: respond 200 immediately
   → processGPS (async):
-      ├── persistRaw → gps_telemetry_raw (unique index dedup)
-      ├── upsert → gps_latest
-      ├── anomalyDetection.detect → anomaly_events
-      └── stopDetection.detect:
-            ├── stopEventModel → stop_events
-            ├── dwellTimeModel → dwell_times
-            ├── headwayRecordModel → headway_records
-            ├── speedProfileModel → speed_profiles
-            └── tripLogModel → trip_logs (stops_visited update)
+      IF edge-computed packet:
+        ├── persistRaw → gps_telemetry_raw
+        ├── upsert → gps_latest (with dist_along_route, next_stop_id, dist_to_next_stop)
+        ├── persistEdgeAnomalies → anomaly_events
+        ├── persistEdgeStopEvent → stop_events + dwell_times + headway_records
+        └── detectServerOnly → gps_loss, off_route
+      ELSE legacy packet:
+        ├── persistRaw → gps_telemetry_raw
+        ├── upsert → gps_latest
+        ├── anomalyDetection.detect → anomaly_events
+        └── stopDetection.detect → stop_events + dwell_times + headway_records
   → VehicleState.updatePosition()
 ```
 
@@ -380,6 +410,9 @@ Route waypoint (C++)
 ## 8. How to Run
 
 ```bash
+# 0. Generate transit graph (one-time, or when route/station data changes)
+node scripts/build_transit_graph.js
+
 # 1. PostgreSQL — create database
 createdb bus_system
 
@@ -392,9 +425,9 @@ cd Website/backend && npm install && npm run dev
 # 4. Website Frontend
 cd Website/frontend && npm install && npm run dev
 
-# 5. Build & run buses
-bash build.sh          # compiles Bus/bus.exe
-cd Bus && ./bus.exe    # interactive REPL
+# 5. Build & run buses (Windows)
+build.bat              # compiles Bus/bus.exe
+run.bat                # starts fleet manager REPL
 > start -n 100         # spawn 100 buses across all routes
 > start -r 3 -n 10    # spawn 10 buses on route 3
 > list                 # show active buses
@@ -418,8 +451,7 @@ cd Bus && ./bus.exe    # interactive REPL
 ## 10. Known Bugs
 
 1. **`Server/src/routes/events.js:23`** — `router.post('/event', saveStopEvent)` references `saveStopEvent` which is never imported or defined. This will crash at runtime if the route is hit.
-2. **`Bus/gps.cpp:94-100`** — `edgeAnomalies` is cleared and repopulated twice (duplicate code block). Harmless but wasteful.
-3. **`Website/backend/package.json:5`** — `"main": "src/sever.js"` has a typo (`sever` instead of `server`). Does not affect `npm run dev` since the `scripts.dev` field is correct.
+2. **`Website/backend/package.json:5`** — `"main": "src/sever.js"` has a typo (`sever` instead of `server`). Does not affect `npm run dev` since the `scripts.dev` field is correct.
 
 ---
 

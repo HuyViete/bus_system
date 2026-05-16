@@ -18,8 +18,12 @@ struct GPSData {
     std::vector<std::string> edgeAnomalies;
 
     std::string stopEvent;
-    int         stopEventId   = -1;
-    double      dwellSeconds  = 0;
+    int         stopEventId    = -1;
+    double      dwellSeconds   = 0;
+
+    double      distAlongRoute = -1;
+    int         nextStopId     = -1;
+    double      distToNextStop = -1;
 };
 
 struct SensorData {

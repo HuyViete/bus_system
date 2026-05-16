@@ -49,7 +49,8 @@ export async function processGPS(packet) {
         // Edge-computed path: bus already detected events/anomalies
         const results = await Promise.allSettled([
             persistRaw(packet, now),
-            gpsLatestModel.upsert({ vehicle_id, route, latitude, longitude, speed, heading, updated_at: now }),
+            gpsLatestModel.upsert({ vehicle_id, route, latitude, longitude, speed, heading, updated_at: now,
+                dist_along_route: packet.dist_along_route, next_stop_id: packet.next_stop_id, dist_to_next_stop: packet.dist_to_next_stop }),
             persistEdgeAnomalies(packet, now),
             persistEdgeStopEvent(state, packet, now),
             detectServerOnlyAnomalies(state, packet, now),
@@ -61,7 +62,8 @@ export async function processGPS(packet) {
         // Legacy path: server computes everything (backward compatible)
         const results = await Promise.allSettled([
             persistRaw(packet, now),
-            gpsLatestModel.upsert({ vehicle_id, route, latitude, longitude, speed, heading, updated_at: now }),
+            gpsLatestModel.upsert({ vehicle_id, route, latitude, longitude, speed, heading, updated_at: now,
+                dist_along_route: packet.dist_along_route, next_stop_id: packet.next_stop_id, dist_to_next_stop: packet.dist_to_next_stop }),
             runAnomalyDetection(state, packet, now),
             stopDetection.detect(state, packet, now, stopList, lastArrivalPerStop),
         ])

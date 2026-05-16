@@ -47,18 +47,21 @@ This design keeps bus-side latency low and avoids blocking on DB writes.
 
 ### 3.3 Processing pipeline (`processGPS`)
 
-For each packet, the server executes these steps:
+The server supports two processing paths based on packet contents:
 
-1. Maintain in-memory vehicle state (last speed/location/timestamp, stop/trip state).
-2. Persist raw telemetry row to `gps_telemetry_raw`.
-3. Upsert current live state into `gps_latest`.
-4. Detect anomalies and write `anomaly_events`.
-5. Detect stop arrivals/departures and write:
-	- `stop_events`
-	- `dwell_times`
-	- `headway_records`
-	- `speed_profiles`
-6. Update trip lifecycle in `trip_logs`.
+**Edge-computed path** (new packets with `edge_anomalies` or `stop_event`):
+1. Maintain in-memory vehicle state.
+2. Persist raw telemetry to `gps_telemetry_raw`.
+3. Upsert live state to `gps_latest` (including `dist_along_route`, `next_stop_id`, `dist_to_next_stop`).
+4. Persist edge anomalies directly (hard_brake, speeding) — no re-detection.
+5. Persist edge stop events directly (arrival, departure, dwell) + compute headway/bunching.
+6. Run server-only detection: `gps_loss` and `off_route` only.
+
+**Legacy path** (old packets without edge fields):
+1. Same steps 1-3.
+4. Full server-side anomaly detection (hard_brake, speeding, gps_loss, off_route).
+5. Full server-side stop detection with geofencing.
+6. Update trip lifecycle.
 
 If any step fails, processing is marked failed and logged.
 
@@ -97,12 +100,18 @@ Important behavior:
 
 Purpose:
 
-- Fast latest snapshot per bus for live map APIs.
+- Fast latest snapshot per bus for live map and ETA APIs.
+
+Stored fields:
+
+- GPS: `vehicle_id`, `route`, `latitude`, `longitude`, `speed`, `heading`, `updated_at`
+- Edge distances: `dist_along_route`, `next_stop_id`, `dist_to_next_stop` (from bus)
 
 Behavior:
 
 - Upsert by `vehicle_id` (one row per active bus).
 - Updated for each packet.
+- Distance fields are NULL for legacy packets.
 
 ---
 
@@ -225,11 +234,23 @@ For future ML models, this design gives:
 2. Ready-made derived labels/features (`dwell_times`, `headway_records`, `speed_profiles`, `anomaly_events`).
 3. Experiment tracking across infrastructure phases (`ingest_metrics_minute` + `phase`).
 
-## 8. Current limitations (important)
+## 8. Preprocessing
+
+The transit graph must be generated before buses can compute distances:
+
+```bash
+node scripts/build_transit_graph.js
+```
+
+This reads `Bus/routes.json` + `Bus/stations.json` and outputs `Bus/transit_graph.json` (~5 MB).
+Regenerate only when route or station data changes.
+
+## 9. Current limitations (important)
 
 1. No Kafka queue yet: ingestion and processing are still in the same service.
 2. No Redis cache yet: live reads come from Postgres fallback table (`gps_latest`).
 3. No Spark layer yet: feature jobs are still online/transactional rather than offline batch.
+4. ETA computation (estimateService.js) is still a stub — distance fields are stored but not yet used.
 
 These are expected and can be compared quantitatively later using `ingest_metrics_minute`.
 
