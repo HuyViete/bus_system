@@ -59,6 +59,18 @@ The system follows a highly resilient, distributed, and event-driven architectur
 - **Scale:** 150 primary routes, up to ~10,000 vertices per route.
 - **Source:** Extracted using the OpenStreetMap API. We have successfully scraped and normalized the precise GPS traces of **340 unique transit routes** and exact geographical coordinates of **5,500 bus stations** stored in our local file structures and databases.
 
+### Events Generation | Traffic Status | Tracking Strategy
+## Events
+1. Anomalies
+
+2. Stopping
+
+3. User Contribution
+
+## Traffic Status
+1. Traffic processing
+
+
 
 ### Problem and Solution
 1. Buses' database on simulation
