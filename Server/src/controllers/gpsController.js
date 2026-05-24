@@ -1,26 +1,21 @@
-// Handles POST /api/gps — responds immediately, processes asynchronously.
-import { processGPS } from '../services/gpsIngestionService.js'
+// Handles POST /api/gps — validates, produces to Kafka, responds immediately.
+import { produceGPS } from '../services/kafkaProducerService.js'
 import {
     recordPacketReceived,
     recordPacketValid,
-    recordProcessingResult,
 } from '../services/ingestionMetricsService.js'
 
 export async function receiveGPS(req, res) {
     const packet = req.body
-    const startedAt = Date.now()
 
     recordPacketReceived()
     recordPacketValid()
 
-    // Respond immediately — bus must not wait for DB writes.
-    res.status(200).json({ ok: true })
+    // Produce to Kafka — the consumer will handle DB writes.
+    produceGPS(packet).catch(err => {
+        console.error(`[GPS] Kafka produce error for ${packet.vehicle_id}: ${err.message}`)
+    })
 
-    // Fire-and-forget: process in background after response is sent.
-    processGPS(packet)
-        .then(() => recordProcessingResult(true, Date.now() - startedAt))
-        .catch(err => {
-            recordProcessingResult(false, Date.now() - startedAt)
-            console.error(`[GPS] processGPS error for ${packet.vehicle_id}: ${err.message}`)
-        })
+    // Respond immediately — bus must not wait for Kafka or DB writes.
+    res.status(200).json({ ok: true })
 }

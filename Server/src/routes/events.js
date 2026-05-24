@@ -20,6 +20,4 @@ router.get('/headway', getHeadway)
 router.get('/anomalies', getAnomalies)
 router.get('/ingestion-metrics', getIngestionMetrics)
 
-router.post('/event', saveStopEvent)
-
 export default router

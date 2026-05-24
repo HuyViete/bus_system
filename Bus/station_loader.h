@@ -45,7 +45,7 @@ inline StationList loadStations(const std::string& path) {
             if (p == std::string::npos) return 0;
             p += needle.size();
             while (p < obj.size() && (obj[p] == ' ')) ++p;
-            return std::stoi(obj.substr(p));
+            return std::stoll(obj.substr(p));
         };
 
         auto extractDouble = [&](const std::string& key) -> double {
