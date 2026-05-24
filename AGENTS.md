@@ -109,7 +109,8 @@ BigData/
 | `src/routes/gps.js` | `POST /api/gps` — bus telemetry ingestion |
 | `src/routes/events.js` | `GET /api/events/*` — analytics read endpoints |
 | `src/routes/dashboard.js` | `GET /dashboard/*` — admin dashboard endpoints |
-| `src/routes/estimate.js` | `GET /api/estimate` — ETA estimation (stub) |
+| `src/routes/estimate.js` | `GET /api/estimate` — ETA estimation endpoint (mocked) |
+| `src/routes/distance.js` | `GET /api/distance/*` — point-to-point, bus-to-point, or nearest-stop distance |
 | `src/controllers/gpsController.js` | Responds 200 immediately, processes async in background |
 | `src/services/gpsIngestionService.js` | Main processing orchestrator: raw persist, live upsert, anomaly detect, stop detect, trip manage |
 | `src/services/anomalyDetectionService.js` | Rule-based anomaly detection: hard_brake, speeding, gps_loss, off_route |
@@ -117,8 +118,8 @@ BigData/
 | `src/services/tripService.js` | Trip lifecycle: start, complete, abort, stale cleanup |
 | `src/services/ingestionMetricsService.js` | In-memory counters flushed to PostgreSQL per minute |
 | `src/services/dashboardService.js` | Composes model queries into dashboard API responses |
-| `src/services/estimateService.js` | **STUB** — `getEstimateTime()` and `getTrafficStatus()` are empty |
-| `src/services/distanceService.js` | **STUB** — `getNearestStop()` is empty |
+| `src/services/estimateService.js` | Mock ETA using nearest active bus distance and speed, and time-of-day traffic status |
+| `src/services/distanceService.js` | Distance calculations: point-to-point, bus-to-point, nearest bus on route, and nearest stop |
 | `src/models/` | One model file per table — all raw SQL via `pg` pool |
 | `src/migrations/` | SQL migration files + transactional runner with history tracking |
 | `src/middlewares/` | `validateGPS` (field check), `requestLogger`, `errorHandler` |
@@ -184,6 +185,13 @@ Analytics reads:
 - `GET /api/events/anomalies` — Anomaly history
 - `GET /api/events/ingestion-metrics` — Ingestion KPIs (`?minutes=60&phase=...`)
 
+Distance & Geo-computations (newly implemented):
+- `GET /api/distance` — Point-to-point, bus-to-point, or nearest-stop distance (`?lat1=&lon1=&lat2=&lon2=` or `?vehicle_id=&lat=&lon=` or `?mode=nearest-stop&lat=&lon=&route=`)
+- `GET /api/distance/nearest-bus` — Finds the nearest active bus on a route to a given point (`?route=&lat=&lon=`)
+
+Estimation:
+- `GET /api/estimate` — Mock ETA & traffic status using nearest bus speed and distance (`?route=&lat=&lon=`)
+
 Dashboard:
 - `GET /dashboard/` — Full overview (fleet, telemetry, anomalies, trips, stops, dwell, headway, speed)
 - `GET /dashboard/routes` — Per-route breakdown + health scores + bunching
@@ -191,9 +199,6 @@ Dashboard:
 - `GET /dashboard/anomalies` — Anomaly detail panel
 - `GET /dashboard/operations` — Dwell times, speed profiles, headway stats
 - `GET /dashboard/ingestion` — Ingestion pipeline KPIs (`?minutes=60`)
-
-Estimation:
-- `GET /api/estimate` — **STUB** returns hardcoded values
 
 **Environment variables (`Server/.env`):**
 ```
@@ -250,11 +255,13 @@ useLiveBuses (3s poll) → fetchLiveBuses() → GET /api/buses/live (BFF)
 **Key files:**
 | File | Purpose |
 |---|---|
-| `src/server.js` | Entry: CORS config, mount auth + bus routes, connect MongoDB |
+| `src/server.js` | Entry: CORS config, mount auth, bus & distance routes, connect MongoDB |
 | `src/controllers/authController.js` | Register/login with bcrypt + JWT tokens |
 | `src/controllers/busController.js` | Proxy live bus data from Server with 3s in-memory cache |
+| `src/controllers/distanceController.js` | Proxy distance and mock ETA requests to Server |
 | `src/routes/authRoute.js` | `POST /api/auth/login`, `POST /api/auth/register` |
 | `src/routes/busRoute.js` | `GET /api/buses/live` (optional `?route=` filter) |
+| `src/routes/distanceRoute.js` | `GET /api/distance/*` — proxies distance and mock ETA endpoints to Server |
 
 **Architecture decision:** The BFF exists so the Big Server is never exposed to the public internet. The BFF:
 - Handles user auth (MongoDB)
@@ -339,12 +346,11 @@ Website Backend (BFF)
 - User auth (register/login) with JWT
 - Route filtering in frontend
 - Benchmark scripts for progressive load testing
+- **Point-to-point and bus-to-point distance calculations** via custom `distanceService`
+- **Believable mock ETA and traffic estimation** based on nearest bus distance, speed, and time-of-day
+- **Secure BFF proxy caching/routing** for distance and ETA endpoints under `/api/distance/*`
 
 ### 🚧 Stubs / Incomplete
-- `estimateService.js` — `getEstimateTime()` and `getTrafficStatus()` are empty (distance data now available for implementation)
-- `distanceService.js` — `getNearestStop()` is empty (edge now computes this)
-- `estimateController.js` — Returns hardcoded placeholder values
-- `events.js` route — References undefined `saveStopEvent` function on line 23 (**BUG**)
 - `Receiver` commands (STOP/REROUTE) — Logged but no actual bus state update
 - `simulation/` — Only Express shell, no functionality
 - `Station/` — Empty directory
@@ -354,8 +360,7 @@ Website Backend (BFF)
 - **Redis:** No Redis dependency yet. `gps_latest` in PostgreSQL is the current fallback. Goal: O(1) live reads.
 - **Apache Spark:** No presence yet. Goal: offline batch feature generation.
 - **WebSocket push:** Frontend currently polls. Upgrade path: replace `useLiveBuses` polling with `socket.on('bus:update')`.
-- ETA computation using edge distances + historical speed profiles
-- Sync/retry logic for bus-side SQLite buffer
+- sync/retry logic for bus-side SQLite buffer
 - Server-to-bus alternative route push via REROUTE command
 
 ---
@@ -450,8 +455,7 @@ run.bat                # starts fleet manager REPL
 
 ## 10. Known Bugs
 
-1. **`Server/src/routes/events.js:23`** — `router.post('/event', saveStopEvent)` references `saveStopEvent` which is never imported or defined. This will crash at runtime if the route is hit.
-2. **`Website/backend/package.json:5`** — `"main": "src/sever.js"` has a typo (`sever` instead of `server`). Does not affect `npm run dev` since the `scripts.dev` field is correct.
+1. **`Website/backend/package.json:5`** — `"main": "src/sever.js"` has a typo (`sever` instead of `server`). Does not affect `npm run dev` since the `scripts.dev` field is correct.
 
 ---
 

@@ -12,6 +12,7 @@ import gpsRoutes from './routes/gps.js'
 import eventsRoutes from './routes/events.js'
 import estimateRoutes from './routes/estimate.js'
 import dashboardRoutes from './routes/dashboard.js'
+import distanceRoutes from './routes/distance.js'
 
 const app = express()
 
@@ -22,6 +23,7 @@ app.use(requestLogger)
 app.use('/api/gps', gpsRoutes)
 app.use('/api/events', eventsRoutes)
 app.use('/api/estimate', estimateRoutes)
+app.use('/api/distance', distanceRoutes)
 app.use('/dashboard', dashboardRoutes)
 app.get('/', (_req, res) => res.json({ status: 'ok' }))
 

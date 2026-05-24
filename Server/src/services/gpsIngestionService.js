@@ -32,6 +32,11 @@ export async function loadStops() {
     }
 }
 
+// Expose the pre-loaded stop list to other services (e.g. distanceService).
+export function getStopList() {
+    return stopList
+}
+
 export async function processGPS(packet) {
     const { vehicle_id, route, latitude, longitude, speed, heading, timestamp } = packet
     const now = new Date(timestamp * 1000)

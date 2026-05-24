@@ -226,6 +226,15 @@ Routes under `GET /api/events/*`:
 - `/anomalies`   -> anomaly history
 - `/ingestion-metrics` -> ingestion KPIs for benchmarking
 
+Routes under `GET /api/distance/*` (newly implemented):
+
+- `/`            -> point-to-point (Haversine), bus-to-point (live), or nearest-stop distance
+- `/nearest-bus` -> nearest active bus on a route to a specific lat/lon
+
+Routes under `GET /api/estimate/*` (newly implemented):
+
+- `/`            -> mock ETA and traffic status using nearest bus speed and distance
+
 ## 7. Why this storage design fits prediction/analysis
 
 For future ML models, this design gives:
@@ -250,7 +259,7 @@ Regenerate only when route or station data changes.
 1. No Kafka queue yet: ingestion and processing are still in the same service.
 2. No Redis cache yet: live reads come from Postgres fallback table (`gps_latest`).
 3. No Spark layer yet: feature jobs are still online/transactional rather than offline batch.
-4. ETA computation (estimateService.js) is still a stub — distance fields are stored but not yet used.
+4. Real-time historical ETA learning is not implemented yet: estimateService utilizes a deterministic physics model (distance/speed) enriched with time-of-day traffic scales.
 
 These are expected and can be compared quantitatively later using `ingest_metrics_minute`.
 
