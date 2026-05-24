@@ -1,9 +1,32 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import SearchDropdown from './SearchDropdown'
 
-const SearchBar = () => {
+const SearchBar = ({ onLocationSelect }) => {
     const [query, setQuery] = useState('')
     const [isFocused, setIsFocused] = useState(false)
+    const [stations, setStations] = useState([])
+
+    useEffect(() => {
+        fetch('/stations.json')
+            .then(res => res.json())
+            .then(data => setStations(data))
+            .catch(err => console.error('[SearchBar] Failed to load stations:', err))
+    }, [])
+
+    const filteredStations = useMemo(() => {
+        if (!query.trim()) return []
+        const lowerQuery = query.toLowerCase()
+        return stations
+            .filter(s => s.name.toLowerCase().includes(lowerQuery))
+            .slice(0, 10) // Limit to top 10 for performance
+    }, [query, stations])
+
+    const handleSelect = (station) => {
+        setQuery(station.name)
+        if (onLocationSelect) {
+            onLocationSelect({ lat: station.lat, lon: station.lon })
+        }
+    }
 
     return (
         <div
@@ -20,14 +43,16 @@ const SearchBar = () => {
                     value={query}
                     onChange={e => setQuery(e.target.value)}
                     onFocus={() => setIsFocused(true)}
-                    onBlur={() => setTimeout(() => setIsFocused(false), 150)}
-                    placeholder='Search bus routes, stops...'
+                    onBlur={() => setIsFocused(false)}
+                    placeholder='Search bus stops...'
                     className='flex-1 outline-none text-sm text-gray-700 placeholder-gray-400 bg-transparent'
                 />
                 {query && (
                     <button
-                        onClick={() => setQuery('')}
-                        className='text-gray-400 hover:text-gray-600 transition-colors text-lg leading-none'
+                        onClick={() => {
+                            setQuery('')
+                        }}
+                        className='text-gray-400 hover:text-gray-600 transition-colors text-xl leading-none'
                     >
                         ×
                     </button>
@@ -35,7 +60,13 @@ const SearchBar = () => {
             </div>
 
             {/* Dropdown — only visible when input is focused */}
-            {isFocused && <SearchDropdown query={query} />}
+            {isFocused && (
+                <SearchDropdown
+                    query={query}
+                    results={filteredStations}
+                    onSelect={handleSelect}
+                />
+            )}
         </div>
     )
 }

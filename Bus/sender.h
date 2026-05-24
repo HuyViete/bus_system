@@ -20,6 +20,8 @@ public:
 
 private:
     SOCKET  socket_;
+    std::string host_;
+    int port_;
     std::mutex              mtx_;
     std::condition_variable cv_;
     std::queue<std::string> queue_;

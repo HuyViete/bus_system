@@ -42,19 +42,9 @@ const NavIconBtn = ({ icon, label, onClick, active }) => (
 const Navbar = ({ isSettingOpen, onSettingToggle, isRouteFilterOpen, onRouteFilterToggle }) => {
     return (
         <div className='fixed left-0 top-0 h-screen z-40 w-12 bg-white shadow-md flex flex-col'>
-
-            {/* Hamburger — opens SettingPanel */}
-            <button
-                onClick={onSettingToggle}
-                title={isSettingOpen ? 'Close menu' : 'Open menu'}
-                className={`w-full h-12 flex items-center justify-center transition-colors cursor-pointer shrink-0
-                    ${isSettingOpen ? 'text-blue-600 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
-            >
-                <IconHamburger />
-            </button>
-
             {/* Quick-access icon buttons */}
             <div className='flex flex-col mt-1'>
+                <NavIconBtn icon={<IconHamburger />} label='Menu' active={isSettingOpen} onClick={onSettingToggle} />
                 <NavIconBtn icon={<IconRoute />} label='Routes' active={isRouteFilterOpen} onClick={onRouteFilterToggle} />
                 <NavIconBtn icon={<IconBookmark />} label='Saved' />
                 <NavIconBtn icon={<IconClock />} label='Recents' />

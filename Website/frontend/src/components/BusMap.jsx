@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useLiveBuses } from '../hooks/useLiveBuses';
 import DeckGL from '@deck.gl/react';
+import { FlyToInterpolator } from '@deck.gl/core';
 import { PathLayer, IconLayer, ScatterplotLayer } from '@deck.gl/layers';
 import Map from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
@@ -111,6 +112,7 @@ const BusMap = ({
     // show only specific routes. Leave undefined to show all routes.
     selectedRouteIds: externalSelectedRouteIds,
     onRouteSelectionChange,
+    targetLocation,
 }) => {
     const [routes, setRoutes] = useState([]);
     const { buses, isConnected, busCount } = useLiveBuses();  // ← live polling
@@ -178,6 +180,20 @@ const BusMap = ({
             }));
         }
     }, [location]);
+
+    // Fly to targetLocation when passed from search bar
+    useEffect(() => {
+        if (targetLocation && targetLocation.lat && targetLocation.lon) {
+            setViewState(prev => ({
+                ...prev,
+                longitude: targetLocation.lon,
+                latitude: targetLocation.lat,
+                zoom: 17,
+                transitionDuration: 1000,
+                transitionInterpolator: new FlyToInterpolator()
+            }));
+        }
+    }, [targetLocation]);
 
     // Load bus routes on mount
     // routes.json is an array of { id, ref, name, color, path } objects.
@@ -341,17 +357,13 @@ const BusMap = ({
             </DeckGL>
 
             {/* Set-location button */}
-            <button className='absolute bottom-4 right-4 z-50 size-8 cursor-pointer' onClick={handleSetLocation}>
+            <button className='absolute bottom-4 right-4 z-50 size-12 cursor-pointer' onClick={handleSetLocation}>
                 <img src="/setlocation.svg" alt="" />
             </button>
 
             {/* Live connection status badge */}
-            <div className={`absolute bottom-4 left-4 z-50 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium shadow ${
-                isConnected ? 'bg-green-500/90 text-white' : 'bg-red-500/90 text-white'
-            }`}>
-                <span className={`size-1.5 rounded-full ${
-                    isConnected ? 'bg-white animate-pulse' : 'bg-white'
-                }`} />
+            <div className={`absolute top-16.5 right-5 z-50 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium shadow ${isConnected ? 'bg-green-500/90 text-white' : 'bg-red-500/90 text-white'}`}>
+                <span className={`size-1.5 rounded-full ${isConnected ? 'bg-white animate-pulse' : 'bg-white'}`} />
                 {isConnected ? `${busCount} buses live` : 'Offline'}
             </div>
         </div>

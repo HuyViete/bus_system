@@ -418,8 +418,8 @@ Route waypoint (C++)
 # 0. Generate transit graph (one-time, or when route/station data changes)
 node scripts/build_transit_graph.js
 
-# 1. PostgreSQL — create database
-createdb bus_system
+# 1. PostgreSQL and Kafka container
+docker compose up -d
 
 # 2. Server
 cd Server && npm install && npm run dev

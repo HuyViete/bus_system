@@ -20,6 +20,8 @@ Sender::~Sender() {
 }
 
 bool Sender::start(const std::string& host, int port) {
+    host_ = host;
+    port_ = port;
     socket_ = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (socket_ == INVALID_SOCKET) {
         ++gBusErrorCounters.senderConnectFailures;
@@ -83,7 +85,42 @@ void Sender::sendLoop() {
             std::string payload = std::move(queue_.front());
             queue_.pop();
             lock.unlock();
-            sendRaw(payload);
+            
+            bool success = sendRaw(payload);
+            if (!success && running_) {
+                if (kVerboseBusLogs)
+                    std::cerr << "[Sender] Connection lost. Reconnecting...\n";
+                if (socket_ != INVALID_SOCKET) {
+                    net::closeSocket(socket_);
+                    socket_ = INVALID_SOCKET;
+                }
+
+                int backoff_ms = 500;
+                while (running_ && socket_ == INVALID_SOCKET) {
+                    socket_ = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+                    if (socket_ != INVALID_SOCKET) {
+                        struct sockaddr_in addr{};
+                        addr.sin_family = AF_INET;
+                        addr.sin_port   = htons(port_);
+                        inet_pton(AF_INET, host_.c_str(), &addr.sin_addr);
+
+                        if (::connect(socket_, (struct sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
+                            net::closeSocket(socket_);
+                            socket_ = INVALID_SOCKET;
+                        }
+                    }
+                    if (socket_ == INVALID_SOCKET) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
+                        backoff_ms = std::min(backoff_ms * 2, 5000);
+                    }
+                }
+                if (socket_ != INVALID_SOCKET) {
+                    if (kVerboseBusLogs)
+                        std::cout << "[Sender] Reconnected successfully.\n";
+                    sendRaw(payload); // Retry the dropped payload
+                }
+            }
+
             lock.lock();
         }
     }
@@ -118,7 +155,13 @@ bool Sender::sendRaw(const std::string& data) {
     }
 
     char buf[512];
-    ::recv(socket_, buf, sizeof(buf) - 1, 0);
+    int bytesRecv = ::recv(socket_, buf, sizeof(buf) - 1, 0);
+    if (bytesRecv <= 0) {
+        ++gBusErrorCounters.senderSendFailures;
+        if (kVerboseBusLogs)
+            std::cerr << "[Sender] recv() error or connection closed: " << net::lastError() << "\n";
+        return false;
+    }
     return true;
 }
 

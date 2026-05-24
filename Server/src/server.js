@@ -42,7 +42,7 @@ async function start() {
     // Start Kafka consumer to pull from topic and process into PostgreSQL.
     await startKafkaConsumer()
 
-    app.listen(config.port, config.ip, () => {
+    const server = app.listen(config.port, () => {
         console.log(`[Server] Running on port ${config.port}`)
         console.log(`[Server] Pipeline phase  → ${config.pipelinePhase}`)
         console.log(`[Server] GPS ingestion  → POST /api/gps → Kafka → PostgreSQL`)
@@ -50,6 +50,10 @@ async function start() {
         console.log(`[Server] Metrics query  → GET  /api/events/ingestion-metrics`)
         console.log(`[Server] Dashboard      → GET  /api/dashboard/{,routes,live,anomalies,operations,ingestion}`)
     })
+
+    // Keep connections open longer (65s) to match the bus 30s heartbeat interval
+    server.keepAliveTimeout = 65000
+    server.headersTimeout = 66000
 }
 
 // Graceful shutdown — disconnect Kafka before exiting.

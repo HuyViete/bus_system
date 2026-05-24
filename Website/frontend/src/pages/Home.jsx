@@ -11,26 +11,27 @@ const Home = () => {
   const [isSettingOpen, setIsSettingOpen] = useState(false)
   const [isRouteFilterOpen, setIsRouteFilterOpen] = useState(false)
   const [selectedRouteIds, setSelectedRouteIds] = useState(null)
+  const [targetLocation, setTargetLocation] = useState(null)
 
   return (
     <>
       {/* Full-screen map base layer */}
-      <App selectedRouteIds={selectedRouteIds} />
+      <App selectedRouteIds={selectedRouteIds} targetLocation={targetLocation} />
 
       {/* Floating overlays */}
       <Taskbar />
       <Navbar
         isSettingOpen={isSettingOpen}
-        onSettingToggle={() => setIsSettingOpen(prev => !prev)}
+        onSettingToggle={() => setIsSettingOpen(state => !state)}
         isRouteFilterOpen={isRouteFilterOpen}
-        onRouteFilterToggle={() => setIsRouteFilterOpen(prev => !prev)}
+        onRouteFilterToggle={() => setIsRouteFilterOpen(state => !state)}
       />
-      <SearchBar />
+      <SearchBar onLocationSelect={setTargetLocation} />
       <SettingPanel
         isOpen={isSettingOpen}
         onClose={() => setIsSettingOpen(false)}
       />
-      <RouteFilterPanel 
+      <RouteFilterPanel
         isOpen={isRouteFilterOpen}
         onClose={() => setIsRouteFilterOpen(false)}
         selectedRouteIds={selectedRouteIds}

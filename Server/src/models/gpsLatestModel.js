@@ -25,7 +25,7 @@ export async function upsert({ vehicle_id, route, latitude, longitude, speed, he
 
 export async function findActive(route = null) {
     const params = []
-    const conditions = [`updated_at > NOW() - INTERVAL '2 minutes'`]
+    const conditions = [`updated_at > NOW() - INTERVAL '40 seconds'`]
 
     if (route) { params.push(route); conditions.push(`route = $${params.length}`) }
 
