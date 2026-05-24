@@ -8,6 +8,7 @@ import * as dwellTimeModel from '../models/dwellTimeModel.js'
 import * as headwayRecordModel from '../models/headwayRecordModel.js'
 import * as tripLogModel from '../models/tripLogModel.js'
 import * as stopModel from '../models/stopModel.js'
+import { seedStopsIfNeeded } from './stopSeederService.js'
 import * as anomalyDetection from './anomalyDetectionService.js'
 import * as stopDetection from './stopDetectionService.js'
 import * as tripService from './tripService.js'
@@ -24,6 +25,7 @@ let stopList = []
 
 export async function loadStops() {
     try {
+        await seedStopsIfNeeded()
         stopList = await stopModel.findAll()
         console.log(`[Processor] Loaded ${stopList.length} stops into memory.`)
     } catch (err) {
