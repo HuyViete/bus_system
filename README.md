@@ -60,17 +60,16 @@ The system follows a highly resilient, distributed, and event-driven architectur
 - **Source:** Extracted using the OpenStreetMap API. We have successfully scraped and normalized the precise GPS traces of **340 unique transit routes** and exact geographical coordinates of **5,500 bus stations** stored in our local file structures and databases.
 
 ### Events Generation | Traffic Status | Tracking Strategy
-## Events
-1. Anomalies
 
-2. Stopping
+## Distance & Geo-computations
+1. **Point-to-Point Distance:** Uses the Haversine formula to compute straight-line distance in meters between any two latitude/longitude points.
+2. **Bus-to-Point Distance:** Computes the distance from a live bus (queried from PostgreSQL's `gps_latest` table) to any arbitrary latitude/longitude point.
+3. **Nearest-Stop Distance:** Finds the closest bus stop on a given route relative to a coordinate point using preloaded in-memory stops.
+4. **Nearest-Bus Search:** Finds the closest active bus on a specific route to a target location.
 
-3. User Contribution
-
-## Traffic Status
-1. Traffic processing
-
-
+## Traffic Status & ETA
+1. **Believable Mock ETA:** Calculates estimated arrival seconds using a deterministic physics model based on the nearest bus's current distance and live speed, falling back to a 25 km/h average if the bus is stopped.
+2. **Time-of-Day Traffic Profiles:** Dynamically shifts traffic scales based on rush hours (07:00-09:00, 16:00-19:00) to return a plausible status (`light`, `normal`, or `heavy`).
 
 ### Problem and Solution
 1. Buses' database on simulation

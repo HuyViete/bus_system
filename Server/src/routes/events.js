@@ -20,6 +20,8 @@ router.get('/headway', getHeadway)
 router.get('/anomalies', getAnomalies)
 router.get('/ingestion-metrics', getIngestionMetrics)
 
-router.post('/event', saveStopEvent)
+// NOTE: router.post('/event', saveStopEvent) was removed — saveStopEvent was never
+// defined or imported (known bug #1). Stop events are persisted internally by
+// gpsIngestionService.js; no external write endpoint is needed at this time.
 
 export default router

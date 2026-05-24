@@ -5,6 +5,7 @@ import { connectToDB } from "./libs/db.js";
 
 import authRoute from "./routes/authRoute.js";
 import busRoute  from "./routes/busRoute.js";
+import distanceRoute from "./routes/distanceRoute.js";
 
 dotenv.config();
 
@@ -22,6 +23,9 @@ app.use("/api/auth", authRoute);
 
 // Bus data (proxy from Big Server) — no auth required for map view
 app.use("/api/buses", busRoute);
+
+// Distance & ETA APIs (proxy from Big Server)
+app.use("/api/distance", distanceRoute);
 
 connectToDB().then(() => {
     app.listen(PORT, () => {
