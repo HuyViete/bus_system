@@ -42,4 +42,50 @@ export async function register(payload) {
     return data
 }
 
+// ── ETA & Detour ──────────────────────────────────────────────────────────────
+
+/**
+ * Get ML-predicted ETA for the nearest bus on a route to reach a target point.
+ * @param {number} route   Route ID
+ * @param {number} lat     Target latitude
+ * @param {number} lon     Target longitude
+ * @returns {Promise<Object>} { eta_seconds, eta_minutes, basis, traffic_status, ... }
+ */
+export async function fetchETA(route, lat, lon) {
+    const { data } = await api.get('/api/distance/estimate', {
+        params: { route, lat, lon },
+    })
+    return data
+}
+
+/**
+ * Get alternative detour paths between two points.
+ * @param {number} fromLat  Start latitude
+ * @param {number} fromLon  Start longitude
+ * @param {number} toLat    End latitude
+ * @param {number} toLon    End longitude
+ * @returns {Promise<Object>} { is_congested, direct, alternatives }
+ */
+export async function fetchDetour(fromLat, fromLon, toLat, toLon) {
+    const { data } = await api.get('/api/distance/detour', {
+        params: { from_lat: fromLat, from_lon: fromLon, to_lat: toLat, to_lon: toLon },
+    })
+    return data
+}
+
+/**
+ * Check if the direct path between two points is currently congested.
+ * @param {number} fromLat  Start latitude
+ * @param {number} fromLon  Start longitude
+ * @param {number} toLat    End latitude
+ * @param {number} toLon    End longitude
+ * @returns {Promise<Object>} { is_congested, congestion_ratio, eta_seconds }
+ */
+export async function fetchDetourCheck(fromLat, fromLon, toLat, toLon) {
+    const { data } = await api.get('/api/distance/detour/check', {
+        params: { from_lat: fromLat, from_lon: fromLon, to_lat: toLat, to_lon: toLon },
+    })
+    return data
+}
+
 export default api

@@ -6,6 +6,7 @@ import { loadStops, startStaleCleanup } from './services/gpsIngestionService.js'
 import { startFlusher } from './services/ingestionMetricsService.js'
 import { init as initKafkaProducer, disconnect as disconnectProducer } from './services/kafkaProducerService.js'
 import { start as startKafkaConsumer, disconnect as disconnectConsumer } from './services/kafkaConsumerService.js'
+import { loadModel as loadMLModel } from './services/mlPredictorService.js'
 import { requestLogger } from './middlewares/requestLogger.js'
 import { errorHandler } from './middlewares/errorHandler.js'
 import gpsRoutes from './routes/gps.js'
@@ -13,6 +14,7 @@ import eventsRoutes from './routes/events.js'
 import estimateRoutes from './routes/estimate.js'
 import dashboardRoutes from './routes/dashboard.js'
 import distanceRoutes from './routes/distance.js'
+import detourRoutes from './routes/detour.js'
 
 const app = express()
 
@@ -24,6 +26,7 @@ app.use('/api/gps', gpsRoutes)
 app.use('/api/events', eventsRoutes)
 app.use('/api/estimate', estimateRoutes)
 app.use('/api/distance', distanceRoutes)
+app.use('/api/routes/detour', detourRoutes)
 app.use('/dashboard', dashboardRoutes)
 app.get('/', (_req, res) => res.json({ status: 'ok' }))
 
@@ -42,6 +45,9 @@ async function start() {
     // Start Kafka consumer to pull from topic and process into PostgreSQL.
     await startKafkaConsumer()
 
+    // Load ML model for ETA prediction (non-blocking — falls back to mock if absent).
+    await loadMLModel()
+
     const server = app.listen(config.port, () => {
         console.log(`[Server] Running on port ${config.port}`)
         console.log(`[Server] Pipeline phase  → ${config.pipelinePhase}`)
@@ -49,6 +55,7 @@ async function start() {
         console.log(`[Server] Events query   → GET  /api/events/{live,stops,dwell,trips,speed,headway,anomalies}`)
         console.log(`[Server] Metrics query  → GET  /api/events/ingestion-metrics`)
         console.log(`[Server] Dashboard      → GET  /api/dashboard/{,routes,live,anomalies,operations,ingestion}`)
+        console.log(`[Server] Detour routes  → GET  /api/routes/detour`)
     })
 
     // Keep connections open longer (65s) to match the bus 30s heartbeat interval

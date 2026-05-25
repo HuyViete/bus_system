@@ -1,0 +1,5 @@
+# ML pipeline output — generated files, do not commit
+data/
+artifacts/
+*.pyc
+__pycache__/

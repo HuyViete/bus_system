@@ -52,7 +52,20 @@ export async function getNearestBus(req, res) {
 }
 
 // ── GET /api/distance/estimate ────────────────────────────────────────────────
-// Proxies to GET /api/estimate on the Big Server (mock ETA).
+// Proxies to GET /api/estimate on the Big Server (ML-backed or mock fallback ETA).
 export async function getEstimate(req, res) {
     await proxyGet('/api/estimate', req.query, res)
 }
+
+// ── GET /api/distance/detour ──────────────────────────────────────────────────
+// Proxies to GET /api/routes/detour on the Big Server (alternative detour paths).
+export async function getDetour(req, res) {
+    await proxyGet('/api/routes/detour', req.query, res)
+}
+
+// ── GET /api/distance/detour/check ────────────────────────────────────────────
+// Proxies to GET /api/routes/detour/check on the Big Server (congestion check).
+export async function getDetourCheck(req, res) {
+    await proxyGet('/api/routes/detour/check', req.query, res)
+}
+
