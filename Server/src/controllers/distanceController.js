@@ -6,6 +6,7 @@ import {
     getNearestStop,
 } from '../services/distanceService.js'
 import { getStopList } from '../services/gpsIngestionService.js'
+import { getEstimateTime } from '../services/estimateService.js'
 
 /**
  * GET /api/distance
@@ -113,6 +114,87 @@ export async function getNearestBus(req, res) {
 
     } catch (err) {
         console.error('[DistanceController] getNearestBus error:', err.message)
+        res.status(500).json({ ok: false, error: err.message })
+    }
+}
+
+/**
+ * GET /api/distance/station-details
+ *
+ * Finds all routes passing through a stop, gets the nearest active bus on each route,
+ * and calculates live distance & predicted travel time (ETA) for each.
+ * Required: ?stop_id=383552890
+ */
+export async function getStationDetails(req, res) {
+    try {
+        const { stop_id } = req.query
+
+        if (!stop_id) {
+            return res.status(400).json({ ok: false, error: 'stop_id is required' })
+        }
+
+        const stopList = getStopList()
+        const stopEntries = stopList.filter(s => String(s.stop_id) === String(stop_id))
+
+        if (stopEntries.length === 0) {
+            return res.status(404).json({ ok: false, error: `Station ${stop_id} not found in preloaded stops` })
+        }
+
+        // Coordinates from first matching entry
+        const latitude = parseFloat(stopEntries[0].latitude)
+        const longitude = parseFloat(stopEntries[0].longitude)
+
+        const routesData = []
+        for (const stop of stopEntries) {
+            const routeNum = Number(stop.route)
+            try {
+                const estimate = await getEstimateTime(routeNum, latitude, longitude)
+                if (estimate) {
+                    routesData.push({
+                        route: routeNum,
+                        nearest_bus_id: estimate.nearest_bus_id,
+                        distance_to_bus_m: estimate.distance_to_bus_m,
+                        eta_seconds: estimate.eta_seconds,
+                        eta_minutes: estimate.eta_minutes,
+                        basis: estimate.basis,
+                        traffic_status: estimate.traffic_status,
+                        confidence: estimate.confidence,
+                    })
+                } else {
+                    routesData.push({
+                        route: routeNum,
+                        nearest_bus_id: null,
+                        distance_to_bus_m: null,
+                        eta_seconds: null,
+                        eta_minutes: null,
+                        basis: 'no_active_bus',
+                        traffic_status: 'unknown',
+                    })
+                }
+            } catch (err) {
+                console.error(`[DistanceController] Error getting estimate for stop ${stop_id} route ${routeNum}:`, err.message)
+                routesData.push({
+                    route: routeNum,
+                    nearest_bus_id: null,
+                    distance_to_bus_m: null,
+                    eta_seconds: null,
+                    eta_minutes: null,
+                    basis: 'error',
+                    traffic_status: 'unknown',
+                })
+            }
+        }
+
+        res.json({
+            ok: true,
+            stop_id,
+            latitude,
+            longitude,
+            routes: routesData,
+        })
+
+    } catch (err) {
+        console.error('[DistanceController] getStationDetails error:', err.message)
         res.status(500).json({ ok: false, error: err.message })
     }
 }

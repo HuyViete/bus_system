@@ -69,3 +69,9 @@ export async function getDetourCheck(req, res) {
     await proxyGet('/api/routes/detour/check', req.query, res)
 }
 
+// ── GET /api/distance/station-details ──────────────────────────────────────────
+// Proxies to GET /api/distance/station-details on the Big Server.
+export async function getStationDetails(req, res) {
+    await proxyGet('/api/distance/station-details', req.query, res)
+}
+

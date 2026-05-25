@@ -88,4 +88,16 @@ export async function fetchDetourCheck(fromLat, fromLon, toLat, toLon) {
     return data
 }
 
+/**
+ * Get details, nearest buses, and ETAs for all routes passing through a station.
+ * @param {string} stopId  Station ID
+ * @returns {Promise<Object>} { ok, stop_id, latitude, longitude, routes: [...] }
+ */
+export async function fetchStationDetails(stopId) {
+    const { data } = await api.get('/api/distance/station-details', {
+        params: { stop_id: stopId },
+    })
+    return data
+}
+
 export default api
