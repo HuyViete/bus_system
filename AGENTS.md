@@ -23,9 +23,25 @@ Buses stream live telemetry → a central server ingests, detects events, and st
 BigData/
 ├── Bus/                    # C++ edge device simulator (one process, many buses)
 ├── Server/                 # Node.js core ingestion & analytics server (Express + PostgreSQL)
+│   └── src/
+│       ├── services/
+│       │   ├── mlPredictorService.js     # ONNX model loader and runtime prediction session
+│       │   └── alternativeRouteService.js # Bezier curved detour waypoint generator
+│       ├── controllers/
+│       │   └── alternativeRouteController.js
+│       └── routes/
+│           └── detour.js                  # /api/routes/detour and /check routers
 ├── Website/
 │   ├── frontend/           # React + Vite + TailwindCSS + MapLibre GL + deck.gl
+│   │   └── src/components/
+│   │       ├── ETAPanel.jsx               # Floating ML-backed arrival forecast panel
+│   │       └── DetourPanel.jsx            # Floating alternative routing comparison panel
 │   └── backend/            # Node.js BFF (Express + MongoDB + JWT auth)
+├── ML/                     # Python 3 offline ETL pipeline and XGBoost training
+│   ├── etl/                # ETL pipeline (raw parsing, spatial grid mapping, chunking)
+│   ├── models/             # XGBoost regression + Optuna optimization training scripts
+│   ├── artifacts/          # Generated model outputs (eta_model.onnx, feature_meta.json)
+│   └── main.py             # Central CLI orchestration script (etl/train/all commands)
 ├── scripts/                # Data pipeline scripts (transit graph generation)
 ├── simulation/             # Node.js simulation controller (placeholder, mostly empty)
 ├── Station/                # Empty — reserved for station data processing
@@ -104,21 +120,25 @@ BigData/
 **Key files:**
 | File | Purpose |
 |---|---|
-| `src/server.js` | Entry point: migrations → load stops → start flusher → Express listen |
+| `src/server.js` | Entry point: migrations → load stops → load ML model → start flusher → Express listen |
 | `src/config/index.js` | All env config (DB, Kafka brokers, pipeline phase, metrics interval) |
 | `src/routes/gps.js` | `POST /api/gps` — bus telemetry ingestion |
 | `src/routes/events.js` | `GET /api/events/*` — analytics read endpoints |
 | `src/routes/dashboard.js` | `GET /dashboard/*` — admin dashboard endpoints |
-| `src/routes/estimate.js` | `GET /api/estimate` — ETA estimation endpoint (mocked) |
+| `src/routes/estimate.js` | `GET /api/estimate` — ETA estimation endpoint (ML-backed) |
+| `src/routes/detour.js` | `GET /api/routes/detour/*` — alternative Bezier routing endpoints |
 | `src/routes/distance.js` | `GET /api/distance/*` — point-to-point, bus-to-point, or nearest-stop distance |
 | `src/controllers/gpsController.js` | Responds 200 immediately, processes async in background |
+| `src/controllers/alternativeRouteController.js` | Coordinates alternative detour calculation and congestion checks |
 | `src/services/gpsIngestionService.js` | Main processing orchestrator: raw persist, live upsert, anomaly detect, stop detect, trip manage |
+| `src/services/mlPredictorService.js` | Loads pre-trained XGBoost ONNX model and executes runtime inference sessions |
+| `src/services/alternativeRouteService.js` | Generates perpendicular Bezier alternative detour geometries and calculates detour savings |
 | `src/services/anomalyDetectionService.js` | Rule-based anomaly detection: hard_brake, speeding, gps_loss, off_route |
 | `src/services/stopDetectionService.js` | Geofence-based stop arrival/departure, dwell times, headway, speed profiles, bunching |
 | `src/services/tripService.js` | Trip lifecycle: start, complete, abort, stale cleanup |
 | `src/services/ingestionMetricsService.js` | In-memory counters flushed to PostgreSQL per minute |
 | `src/services/dashboardService.js` | Composes model queries into dashboard API responses |
-| `src/services/estimateService.js` | Mock ETA using nearest active bus distance and speed, and time-of-day traffic status |
+| `src/services/estimateService.js` | Spatial-temporal ML-backed ETA prediction, falls back to physics model if ONNX file missing |
 | `src/services/distanceService.js` | Distance calculations: point-to-point, bus-to-point, nearest bus on route, and nearest stop |
 | `src/models/` | One model file per table — all raw SQL via `pg` pool |
 | `src/migrations/` | SQL migration files + transactional runner with history tracking |
@@ -189,8 +209,12 @@ Distance & Geo-computations (newly implemented):
 - `GET /api/distance` — Point-to-point, bus-to-point, or nearest-stop distance (`?lat1=&lon1=&lat2=&lon2=` or `?vehicle_id=&lat=&lon=` or `?mode=nearest-stop&lat=&lon=&route=`)
 - `GET /api/distance/nearest-bus` — Finds the nearest active bus on a route to a given point (`?route=&lat=&lon=`)
 
-Estimation:
-- `GET /api/estimate` — Mock ETA & traffic status using nearest bus speed and distance (`?route=&lat=&lon=`)
+Estimation & ML:
+- `GET /api/estimate` — ML-backed travel time prediction and traffic analysis using the loaded ONNX model, with deterministic physics fallback (`?route=&lat=&lon=`)
+
+Routing & Detours:
+- `GET /api/routes/detour` — Dynamic alternative Bezier detour path generator with predicted travel times and savings analysis (`?from_lat=&from_lon=&to_lat=&to_lon=`)
+- `GET /api/routes/detour/check` — Spatial congestion check for the active routing segment (`?from_lat=&from_lon=&to_lat=&to_lon=`)
 
 Dashboard:
 - `GET /dashboard/` — Full overview (fleet, telemetry, anomalies, trips, stops, dwell, headway, speed)
@@ -224,14 +248,16 @@ KAFKA_BROKERS=localhost:9092            # (optional, from config)
 | File | Purpose |
 |---|---|
 | `src/App.jsx` | React Router: `/` (Home), `/login`, `/register` |
-| `src/pages/Home.jsx` | Main page: full-screen map + floating overlays (Navbar, SearchBar, Settings, RouteFilter) |
+| `src/pages/Home.jsx` | Main page: full-screen map + floating overlays (Navbar, SearchBar, Settings, RouteFilter, ETAPanel, DetourPanel) |
 | `src/components/BusMap.jsx` | MapLibre + deck.gl IconLayer for 2,100 bus markers + route geometry |
 | `src/components/RouteFilterPanel.jsx` | Route selection panel to filter displayed buses/routes |
 | `src/components/Navbar.jsx` | Top navigation bar |
 | `src/components/SearchBar.jsx` | Search functionality |
 | `src/components/SettingPanel.jsx` | Settings panel (language, preferences) |
+| `src/components/ETAPanel.jsx` | Floating ML-backed arrival forecast overlay with confidence range and traffic status |
+| `src/components/DetourPanel.jsx` | Floating alternative routing comparison overlay showing Bezier detour recommendations and time savings |
 | `src/hooks/useLiveBuses.js` | Polling hook: fetches live bus positions every 3 seconds |
-| `src/services/api.js` | Axios service layer: `fetchLiveBuses()`, `login()`, `register()` |
+| `src/services/api.js` | Axios service layer: `fetchLiveBuses()`, `login()`, `register()`, `fetchETA()`, `fetchDetour()`, `fetchDetourCheck()` |
 
 **Data flow:**
 ```
@@ -255,13 +281,13 @@ useLiveBuses (3s poll) → fetchLiveBuses() → GET /api/buses/live (BFF)
 **Key files:**
 | File | Purpose |
 |---|---|
-| `src/server.js` | Entry: CORS config, mount auth, bus & distance routes, connect MongoDB |
+| `src/server.js` | Entry: CORS config, mount auth, bus, detour & distance routes, connect MongoDB |
 | `src/controllers/authController.js` | Register/login with bcrypt + JWT tokens |
 | `src/controllers/busController.js` | Proxy live bus data from Server with 3s in-memory cache |
-| `src/controllers/distanceController.js` | Proxy distance and mock ETA requests to Server |
+| `src/controllers/distanceController.js` | Proxy distance, ML ETA, Bezier detour, and congestion check requests to Server |
 | `src/routes/authRoute.js` | `POST /api/auth/login`, `POST /api/auth/register` |
 | `src/routes/busRoute.js` | `GET /api/buses/live` (optional `?route=` filter) |
-| `src/routes/distanceRoute.js` | `GET /api/distance/*` — proxies distance and mock ETA endpoints to Server |
+| `src/routes/distanceRoute.js` | `GET /api/distance/*` — proxies distance, ML ETA, detour routing, and congestion check endpoints to Server |
 
 **Architecture decision:** The BFF exists so the Big Server is never exposed to the public internet. The BFF:
 - Handles user auth (MongoDB)
@@ -347,8 +373,10 @@ Website Backend (BFF)
 - Route filtering in frontend
 - Benchmark scripts for progressive load testing
 - **Point-to-point and bus-to-point distance calculations** via custom `distanceService`
-- **Believable mock ETA and traffic estimation** based on nearest bus distance, speed, and time-of-day
-- **Secure BFF proxy caching/routing** for distance and ETA endpoints under `/api/distance/*`
+- **ML-backed real-time travel time estimation (ETA)** via loaded XGBoost ONNX model and spatial-temporal features, with a physics-based fallback when model is absent
+- **Alternative inter-station detour routing** using perpendicular Bezier curve interpolation and ML detour comparisons
+- **Interactive floating React overlays (`ETAPanel`, `DetourPanel`)** for real-time traffic status, confidence interval displays, congestion alerts, and comparative detour savings
+- **Secure BFF proxy caching/routing** for distance, ML ETA, detour, and check endpoints under `/api/distance/*`
 
 ### 🚧 Stubs / Incomplete
 - `Receiver` commands (STOP/REROUTE) — Logged but no actual bus state update
@@ -455,7 +483,7 @@ run.bat                # starts fleet manager REPL
 
 ## 10. Known Bugs
 
-1. **`Website/backend/package.json:5`** — `"main": "src/sever.js"` has a typo (`sever` instead of `server`). Does not affect `npm run dev` since the `scripts.dev` field is correct.
+*No critical outstanding bugs.* All verified issues, including the `Website/backend/package.json` entrypoint typo, have been fully patched.
 
 ---
 

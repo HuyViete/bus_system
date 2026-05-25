@@ -100,7 +100,7 @@ States:
 - **GPS loss** — edge can't detect its own absence
 - **Off-route** — requires route geometry validation
 - **Trip lifecycle** — central trip table
-- **ETA** — requires historical speed profiles + dwell times
+- **ETA** — predicted in real-time on the server using an offline-trained **XGBoost regression model** loaded via **ONNX Runtime** (utilizing the bus's edge-computed distances and stop arrival/departure contexts).
 
 ## Enriched Packet Format
 

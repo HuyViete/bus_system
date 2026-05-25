@@ -24,10 +24,11 @@ On startup (`src/server.js`):
 1. Load environment variables from `.env`.
 2. Run `initSchema()` to create tables/indexes if missing.
 3. Run `loadStops()` to preload stop coordinates into memory.
-4. Start metrics flusher (`startIngestionMetricsFlusher`) to persist per-minute ingest stats.
-5. Start Express server on `PORT`.
+4. Load the offline-trained XGBoost ONNX model (if `Server/src/artifacts/eta_model.onnx` exists) using `mlPredictorService.js`.
+5. Start the metrics flusher (`startIngestionMetricsFlusher`) to persist per-minute ingest stats.
+6. Start the Express server on `PORT`.
 
-If PostgreSQL is unreachable, startup fails and the server exits.
+If PostgreSQL is unreachable, startup fails and the server exits. If the ONNX model is missing, the server outputs a warning and gracefully activates the deterministic mock ETA fallback.
 
 ## 3. Request flow (GPS ingestion)
 
@@ -231,9 +232,14 @@ Routes under `GET /api/distance/*` (newly implemented):
 - `/`            -> point-to-point (Haversine), bus-to-point (live), or nearest-stop distance
 - `/nearest-bus` -> nearest active bus on a route to a specific lat/lon
 
-Routes under `GET /api/estimate/*` (newly implemented):
+Routes under `GET /api/estimate` (fully upgraded):
 
-- `/`            -> mock ETA and traffic status using nearest bus speed and distance
+- `/`            -> ML-backed travel time prediction, confidence intervals, and traffic index calculated via the preloaded ONNX model (falls back to deterministic physics-based mock if model is absent).
+
+Routes under `GET /api/routes/detour/*` (newly implemented):
+
+- `/`            -> generates alternative Bezier detour routes between consecutive stations, evaluates detour segment travel times via ML predictor, and compares savings.
+- `/check`      -> returns congestion check flags for specified coordinates.
 
 ## 7. Why this storage design fits prediction/analysis
 
@@ -259,11 +265,10 @@ Regenerate only when route or station data changes.
 1. No Kafka queue yet: ingestion and processing are still in the same service.
 2. No Redis cache yet: live reads come from Postgres fallback table (`gps_latest`).
 3. No Spark layer yet: feature jobs are still online/transactional rather than offline batch.
-4. Real-time historical ETA learning is not implemented yet: estimateService utilizes a deterministic physics model (distance/speed) enriched with time-of-day traffic scales.
 
 These are expected and can be compared quantitatively later using `ingest_metrics_minute`.
 
-## 9. Suggested phase naming convention
+## 10. Suggested phase naming convention
 
 Set `PIPELINE_PHASE` per rollout so metrics are comparable:
 
@@ -278,3 +283,22 @@ Then query:
 - `GET /api/events/ingestion-metrics?minutes=60&phase=kafka-v1`
 
 This gives direct before/after numbers with the same schema.
+
+---
+
+## 11. Machine Learning & Bezier Detour Routing Architecture
+
+The core server integrates high-performance spatial-temporal forecasting and alternative routing without external pathfinding engines:
+
+### 11.1 ML Inference (`src/services/mlPredictorService.js`)
+- Uses `onnxruntime-node` to load the pre-trained XGBoost `.onnx` model asynchronously at startup.
+- Feeds real-time features (`latitude`, `longitude`, `speed`, `heading`, `hour_of_day`, `day_of_week`, and destination points) into the inference session.
+- Maps spatial coordinates to grid cells to look up traffic profiles.
+- Generates travel time predictions (seconds) with a calculated 95% confidence interval based on historical error distributions.
+
+### 11.2 Bezier Detour Generator (`src/services/alternativeRouteService.js`)
+- Dynamically calculates alternative route waypoints using a **perpendicular Bezier interpolation algorithm** to create smooth, curved pathways between coordinates.
+- Determines detours based on:
+  - Congestion levels on the standard path (speed less than `15 km/h` on active buses).
+  - Geometry interpolation (scales the Bezier control point perpendicular to the direct chord path).
+- Predicts detour segment travel times via the ML predictor to compute comparative travel time savings.

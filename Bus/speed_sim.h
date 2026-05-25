@@ -23,27 +23,29 @@ struct StopZone {
 };
 
 struct SpeedSimConfig {
-    double cruiseMinKmh    = 15.0;
-    double cruiseMaxKmh    = 45.0;
-    double accelRateKmhS   = 3.0;
-    double decelRateKmhS   = 4.0;
+    double cruiseMinKmh     = 15.0;
+    double cruiseMaxKmh     = 45.0;
+    double accelRateKmhS    = 3.0;
+    double decelRateKmhS    = 4.0;
     double hardBrakeDropMin = 25.0;
     double hardBrakeDropMax = 40.0;
     double speedingMinKmh   = 82.0;
     double speedingMaxKmh   = 100.0;
-    double dwellMinSec      = 8.0;
-    double dwellMaxSec      = 30.0;
+    double dwellMinSec      = 5.0;
+    double dwellMaxSec      = 15.0;
     double hardBrakeChance  = 0.003;
     double speedingChance   = 0.005;
-    double approachRadiusM  = 120.0;
-    double stopRadiusM      = 40.0;
+    double approachRadiusM  = 50.0;
+    double stopRadiusM      = 20.0;
+    double bypassChance     = 0.75;
 };
 
 class SpeedSimulator {
 public:
     SpeedSimulator() : state_(DrivingState::CRUISING), speed_(25.0),
                        targetSpeed_(30.0), dwellRemaining_(0),
-                       ticksSinceEvent_(0), heading_(0.0) {}
+                       ticksSinceEvent_(0), heading_(0.0),
+                       lastAttemptedStop_(-1) {}
 
     void setStops(const std::vector<StopZone>& stops) { stops_ = stops; }
     void setConfig(const SpeedSimConfig& cfg) { cfg_ = cfg; }
@@ -72,6 +74,14 @@ public:
         double nearDist = (nearStop >= 0)
             ? haversineM(lat, lon, stops_[nearStop].lat, stops_[nearStop].lon)
             : 9999.0;
+
+        // Roll bypass chance on entering a new stop's vicinity to prevent getting stuck
+        if (nearStop >= 0 && nearStop != lastAttemptedStop_) {
+            lastAttemptedStop_ = nearStop;
+            if (randChance(cfg_.bypassChance)) {
+                lastDepartedStop_ = nearStop; // Treat as departed to bypass this stop
+            }
+        }
 
         switch (state_) {
         case DrivingState::STOPPED_AT_STATION:
@@ -169,7 +179,10 @@ public:
         return result;
     }
 
-    void resetDepartedStop() { lastDepartedStop_ = -1; }
+    void resetDepartedStop() { 
+        lastDepartedStop_ = -1; 
+        lastAttemptedStop_ = -1;
+    }
 
 private:
     DrivingState state_;
@@ -181,6 +194,7 @@ private:
     double heading_;
     int    lastStopId_     = -1;
     int    lastDepartedStop_ = -1;
+    int    lastAttemptedStop_ = -1;
 
     std::vector<StopZone> stops_;
     SpeedSimConfig cfg_;
