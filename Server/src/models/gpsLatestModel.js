@@ -2,7 +2,7 @@
 import pool from '../libs/db.js'
 
 export async function upsert({ vehicle_id, route, latitude, longitude, speed, heading, updated_at,
-                                dist_along_route, next_stop_id, dist_to_next_stop }) {
+    dist_along_route, next_stop_id, dist_to_next_stop }) {
     await pool.query(`
         INSERT INTO gps_latest
             (vehicle_id, route, latitude, longitude, speed, heading, updated_at,
@@ -25,7 +25,7 @@ export async function upsert({ vehicle_id, route, latitude, longitude, speed, he
 
 export async function findActive(route = null) {
     const params = []
-    const conditions = [`updated_at > NOW() - INTERVAL '40 seconds'`]
+    const conditions = [`updated_at > NOW() - INTERVAL '1 minutes'`]
 
     if (route) { params.push(route); conditions.push(`route = $${params.length}`) }
 
@@ -37,4 +37,8 @@ export async function findActive(route = null) {
         ORDER BY vehicle_id
     `, params)
     return rows
+}
+
+export async function removeActive(vehicle_id) {
+    await pool.query(`DELETE FROM gps_latest WHERE vehicle_id = $1`, [vehicle_id])
 }

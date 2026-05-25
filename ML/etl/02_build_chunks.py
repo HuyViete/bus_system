@@ -193,7 +193,7 @@ def main():
     # Summary stats
     elapsed = time.time() - start_time
     print()
-    print(f'[ETL] ═══════════════════════════════════════════')
+    print(f'[ETL] ===========================================')
     print(f'[ETL] Done in {elapsed:.1f}s')
     print(f'[ETL] GPS points processed:   {total_gps_points:>12,}')
     print(f'[ETL] Chunks produced:        {len(chunks_df):>12,}')

@@ -21,9 +21,9 @@ ML_DIR = os.path.dirname(os.path.abspath(__file__))
 def run_script(script_path: str, extra_args: list[str] = None):
     """Run a Python script, forwarding extra args."""
     cmd = [sys.executable, script_path] + (extra_args or [])
-    print(f'\n{"═" * 60}')
+    print(f'\n{"=" * 60}')
     print(f'Running: {" ".join(cmd)}')
-    print(f'{"═" * 60}\n')
+    print(f'{"=" * 60}\n')
     result = subprocess.run(cmd, cwd=ML_DIR)
     if result.returncode != 0:
         print(f'\n[ML] Script failed with exit code {result.returncode}')

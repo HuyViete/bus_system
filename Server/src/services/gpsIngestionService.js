@@ -40,8 +40,14 @@ export function getStopList() {
 }
 
 export async function processGPS(packet) {
-    const { vehicle_id, route, latitude, longitude, speed, heading, timestamp } = packet
+    const { vehicle_id, route, latitude, longitude, speed, heading, timestamp, status } = packet
     const now = new Date(timestamp * 1000)
+
+    if (status === 'offline') {
+        await gpsLatestModel.removeActive(vehicle_id)
+        vehicleStates.delete(vehicle_id)
+        return
+    }
 
     let state = vehicleStates.get(vehicle_id)
     if (!state) {

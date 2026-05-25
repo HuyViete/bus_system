@@ -23,7 +23,7 @@ MAX_CHUNK_TIME_S = 300     # cap single-chunk travel time at 5 min (outlier)
 
 # ── Dataset paths ─────────────────────────────────────────────────────────
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-DATASET_DIR  = r'C:\Coding\MYBK\BusDataset'
+DATASET_DIR  = r'C:\Users\hoang\Downloads'
 ROUTE_MAPPING_CSV = os.path.join(DATASET_DIR, 'vehicle_route_mapping.csv')
 
 # ── Project data paths ────────────────────────────────────────────────────

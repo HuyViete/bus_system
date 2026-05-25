@@ -230,6 +230,15 @@ const BusMap = ({
                 transitionDuration: 1000,
                 transitionInterpolator: new FlyToInterpolator()
             }));
+
+            // Auto-open station panel if ID is present
+            if (targetLocation.id) {
+                handleExpandDetails('station', {
+                    id: targetLocation.id,
+                    name: targetLocation.name,
+                    position: [targetLocation.lon, targetLocation.lat]
+                });
+            }
         }
     }, [targetLocation]);
 
@@ -362,18 +371,22 @@ const BusMap = ({
             // Fixed pixel size — won't scale when user zooms in/out
             sizeUnits: 'pixels',
             sizeScale: 1,
-            getSize: 36,
+            getSize: d => (detailsPanelOpen && panelType === 'bus' && panelData && d.id === panelData.id) ? 64 : 36,
             sizeMinPixels: 36,
-            sizeMaxPixels: 36,
+            sizeMaxPixels: 64,
             onClick: info => handleBusClick(info),
             autoHighlight: true,
             highlightColor: [255, 255, 255, 120],
+            updateTriggers: {
+                getSize: [detailsPanelOpen, panelType, panelData?.id]
+            }
         }),
 
-        // ── Bus station icons ──────────────────────────────────────────────
+        // ── Bus station icons (Unselected) ─────────────────────────────────
+        // Scales down when zooming out to avoid map clutter
         new IconLayer({
             id: 'bus-stations',
-            data: stations,
+            data: stations.filter(s => !(detailsPanelOpen && panelType === 'station' && panelData && s.id === panelData.id)),
             pickable: true,
             getPosition: d => d.position,
             getIcon: () => ({
@@ -383,12 +396,33 @@ const BusMap = ({
                 anchorX: 64,
                 anchorY: 64,
             }),
-            // Fixed pixel size — won't scale when user zooms in/out
             sizeUnits: 'meters',
             sizeScale: 1,
             getSize: 40,
             sizeMinPixels: 2,
             sizeMaxPixels: 36,
+            onClick: info => handleStationClick(info),
+            autoHighlight: true,
+            highlightColor: [83, 131, 234, 120],
+        }),
+
+        // ── Bus station icon (Selected) ────────────────────────────────────
+        // Fixed pixel size so it stays large on screen regardless of zoom
+        new IconLayer({
+            id: 'bus-stations-selected',
+            data: stations.filter(s => detailsPanelOpen && panelType === 'station' && panelData && s.id === panelData.id),
+            pickable: true,
+            getPosition: d => d.position,
+            getIcon: () => ({
+                url: '/station.svg',
+                width: 128,
+                height: 128,
+                anchorX: 64,
+                anchorY: 64,
+            }),
+            sizeUnits: 'pixels',
+            sizeScale: 1,
+            getSize: 64,
             onClick: info => handleStationClick(info),
             autoHighlight: true,
             highlightColor: [83, 131, 234, 120],
@@ -418,7 +452,7 @@ const BusMap = ({
             : null,
 
         // Filter out null so DeckGL never sees undefined layers
-    ].filter(Boolean), [visibleRoutes, visibleBuses, stations, location]);
+    ].filter(Boolean), [visibleRoutes, visibleBuses, stations, location, detailsPanelOpen, panelData, panelType]);
 
     const handleSetLocation = () => {
         if (location.lat && location.lon) {
@@ -460,9 +494,9 @@ const BusMap = ({
             {detailsPanelOpen && panelData && (
                 <div className="absolute top-0 right-0 z-100 h-screen w-96 bg-white/90 backdrop-blur-xl border-l border-gray-200/50 shadow-2xl flex flex-col transition-all duration-300 animate-slide-in text-gray-800">
                     {/* Header */}
-                    <div className="p-4 border-b border-gray-200/50 flex justify-between items-center bg-gray-50/50 shrink-0">
-                        <div className="flex items-center gap-2.5">
-                            <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
+                    <div className="p-4 border-b border-gray-200/50 flex justify-between items-center bg-gray-50/50 shrink-0 overflow-hidden">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="p-2 rounded-xl bg-blue-50 text-blue-600 shrink-0">
                                 {panelType === 'station' ? (
                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                                 ) : (
@@ -471,10 +505,10 @@ const BusMap = ({
                             </div>
                             <div className="min-w-0 flex-1">
                                 <h2 className="text-base font-semibold text-gray-900 tracking-tight leading-tight truncate">
-                                    {panelType === 'station' ? panelData.name : `Bus Vehicle #${panelData.id}`}
+                                    {panelType === 'station' ? panelData.name : `Bus #${panelData.id}`}
                                 </h2>
                                 <span className="text-xs text-gray-500 font-medium block truncate">
-                                    {panelType === 'station' ? `Station ID: ${panelData.id}` : `Active on Route ${panelData.route}`}
+                                    {panelType === 'station' ? `Station ID: ${panelData.id}` : `Active on Route ${String(panelData.route).padStart(2, '0')}`}
                                 </span>
                             </div>
                         </div>
@@ -498,81 +532,75 @@ const BusMap = ({
                                     </div>
                                 ) : stationDetails && stationDetails.routes ? (
                                     <div className="flex flex-col gap-3">
-                                        {stationDetails.routes.map(r => {
-                                            // Find the route info in routes state to get its color
-                                            const routeInfo = routes.find(route => Number(route.ref) === Number(r.route) || String(route.id) === String(r.route));
-                                            const colorString = routeInfo ? `rgb(${routeInfo.color[0]}, ${routeInfo.color[1]}, ${routeInfo.color[2]})` : 'rgb(0, 150, 255)';
+                                        {stationDetails.routes.filter(r => r.nearest_bus_id).length > 0 ? (
+                                            stationDetails.routes.filter(r => r.nearest_bus_id).map(r => {
+                                                // Find the route info in routes state to get its color
+                                                const routeInfo = routes.find(route => Number(route.ref) === Number(r.route) || String(route.id) === String(r.route));
+                                                const colorString = routeInfo ? `rgb(${routeInfo.color[0]}, ${routeInfo.color[1]}, ${routeInfo.color[2]})` : 'rgb(0, 150, 255)';
 
-                                            return (
-                                                <div
-                                                    key={r.route}
-                                                    className="p-3 bg-white border border-gray-100 rounded-xl shadow-sm flex flex-col gap-2.5 transition-shadow hover:shadow-md"
-                                                    style={{ borderLeftWidth: '4px', borderLeftColor: colorString }}
-                                                >
-                                                    <div className="flex justify-between items-center">
-                                                        <div className="flex items-center gap-2">
-                                                            <div className="px-2 py-0.5 rounded font-bold text-white text-xs" style={{ backgroundColor: colorString }}>
-                                                                Route {String(r.route).padStart(2, '0')}
+                                                return (
+                                                    <div
+                                                        key={r.route}
+                                                        className="p-3 bg-white border border-gray-100 rounded-xl shadow-sm flex flex-col gap-2.5 transition-shadow hover:shadow-md"
+                                                        style={{ borderLeftWidth: '4px', borderLeftColor: colorString }}
+                                                    >
+                                                        <div className="flex flex-col gap-1.5">
+                                                            <div className="flex items-center gap-2 overflow-hidden">
+                                                                <div className="px-2 py-0.5 rounded font-bold text-white text-xs shrink-0 w-20 text-center" style={{ backgroundColor: colorString }}>
+                                                                    Route {String(r.route).padStart(2, '0')}
+                                                                </div>
+                                                                <span className="text-xs text-gray-600 font-semibold truncate">
+                                                                    {routeInfo ? routeInfo.name : 'City Transit'}
+                                                                </span>
                                                             </div>
-                                                            <span className="text-xs text-gray-400 font-medium">
-                                                                {routeInfo ? routeInfo.name : 'City Transit'}
-                                                            </span>
-                                                        </div>
-                                                        {r.nearest_bus_id ? (
-                                                            <span className="px-2 py-0.5 rounded bg-green-50 text-green-600 border border-green-100 font-bold text-[10px] uppercase tracking-wide">
-                                                                Bus #{r.nearest_bus_id}
-                                                            </span>
-                                                        ) : (
-                                                            <span className="px-2 py-0.5 rounded bg-gray-50 text-gray-400 border border-gray-100 font-semibold text-[10px] uppercase tracking-wide">
-                                                                No Active Bus
-                                                            </span>
-                                                        )}
-                                                    </div>
+                                                            <div className="flex justify-between items-center mt-1">
+                                                                <span className="px-2 py-0.5 rounded bg-green-50 text-green-600 border border-green-100 font-bold text-xs uppercase tracking-wide">
+                                                                    Bus #{r.nearest_bus_id}
+                                                                </span>
 
-                                                    {r.nearest_bus_id ? (
+                                                                {/* Traffic status badge */}
+                                                                <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide text-white
+                                                                    ${r.traffic_status === 'heavy' ? 'bg-red-500' : r.traffic_status === 'normal' ? 'bg-amber-500' : 'bg-green-500'}
+                                                                `}>
+                                                                    {r.traffic_status} traffic
+                                                                </span>
+                                                            </div>
+                                                        </div>
+
                                                         <div className="flex flex-col gap-2">
                                                             <div className="flex justify-between items-end">
-                                                                <div>
-                                                                    <div className="text-2xl font-black text-gray-900 tracking-tight leading-none">
-                                                                        {r.eta_minutes !== null ? `${Math.round(r.eta_minutes)}` : '--'} <span className="text-xs font-semibold text-gray-500">mins</span>
+                                                                <div className="flex items-baseline gap-1">
+                                                                    <span className="text-xs font-bold text-gray-800">ETA: </span>
+                                                                    <div className="text-xl font-bold text-gray-800 tracking-tight leading-none">
+                                                                        {r.eta_minutes !== null ? `${Math.round(r.eta_minutes)}` : '--'}
                                                                     </div>
-                                                                    <div className="text-[10px] text-gray-400 font-medium mt-0.5">
-                                                                        Distance: {r.distance_to_bus_m > 1000 ? `${(r.distance_to_bus_m / 1000).toFixed(1)} km` : `${Math.round(r.distance_to_bus_m)} m`}
-                                                                    </div>
+                                                                    <span className="text-xs font-bold text-gray-800">mins</span>
                                                                 </div>
-
-                                                                <div className="flex flex-col items-end gap-1">
-                                                                    {/* Traffic status badge */}
-                                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide text-white
-                                                                        ${r.traffic_status === 'heavy' ? 'bg-red-500' : r.traffic_status === 'normal' ? 'bg-amber-500' : 'bg-green-500'}
-                                                                    `}>
-                                                                        {r.traffic_status} traffic
-                                                                    </span>
-
-                                                                    {/* AI indicator badge */}
-                                                                    <span className="text-[9px] font-semibold text-gray-400">
-                                                                        {r.basis === 'ml_model' ? '⚡ ML Prediction' : '⚙️ Physics Fallback'}
+                                                                <div className="flex items-baseline gap-1">
+                                                                    <span className="text-xs font-bold text-gray-800">Distance: </span>
+                                                                    <div className="text-xl font-bold text-gray-800 tracking-tight leading-none">
+                                                                        {r.distance_to_bus_m > 1000 ? `${(r.distance_to_bus_m / 1000).toFixed(1)}` : `${Math.round(r.distance_to_bus_m)}`}
+                                                                    </div>
+                                                                    <span className="text-xs font-bold text-gray-800">
+                                                                        {r.distance_to_bus_m > 1000 ? 'km' : 'm'}
                                                                     </span>
                                                                 </div>
                                                             </div>
 
                                                             {r.confidence && (
-                                                                <div className="text-[10px] text-gray-500 border-t border-gray-100/50 pt-2 flex justify-between">
-                                                                    <span>Confidence Range (95%):</span>
-                                                                    <span className="font-semibold text-gray-700">
-                                                                        {Math.round(r.confidence.low_seconds / 60)} - {Math.round(r.confidence.high_seconds / 60)} mins
-                                                                    </span>
+                                                                <div className="text-xs font-bold text-gray-800 border-t border-gray-200 pt-2">
+                                                                    <span>ETA range: {Math.round(r.confidence.low_seconds / 60)} - {Math.round(r.confidence.high_seconds / 60)} mins</span>
                                                                 </div>
                                                             )}
                                                         </div>
-                                                    ) : (
-                                                        <div className="py-2 text-center text-xs text-gray-400 italic">
-                                                            Currently no buses active on this route.
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
+                                                    </div>
+                                                );
+                                            })
+                                        ) : (
+                                            <div className="py-8 text-center text-sm text-gray-400 italic">
+                                                Currently no bus going to this station.
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="p-4 text-center text-sm text-gray-500">Could not retrieve station details.</div>
@@ -583,19 +611,21 @@ const BusMap = ({
                                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider shrink-0">Live Vehicle Details</h3>
                                 <div className="p-4 bg-white border border-gray-100 rounded-2xl shadow-sm flex flex-col gap-4">
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="p-3 bg-gray-50/50 rounded-xl">
+                                        <div className="p-3 bg-blue-50/45 border border-blue-100/20 rounded-xl">
                                             <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">Live Speed</span>
-                                            <div className="text-xl font-bold text-gray-800 mt-0.5">{Math.round(panelData.speed)} <span className="text-xs font-medium text-gray-500">km/h</span></div>
+                                            <div className="text-xl font-bold text-gray-800 mt-0.5">{Math.round(panelData.speed)} <span className="text-xs font-bold text-gray-800">km/h</span></div>
                                         </div>
-                                        <div className="p-3 bg-gray-50/50 rounded-xl">
-                                            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">Heading</span>
-                                            <div className="text-xl font-bold text-gray-800 mt-0.5">{Math.round(panelData.heading)}°</div>
+                                        <div className="p-3 bg-blue-50/45 border border-blue-100/20 rounded-xl">
+                                            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">Heading Direction</span>
+                                            <div className="text-xl font-bold text-gray-800 mt-0.5">
+                                                {Math.round(panelData.heading)}° <span className="text-lg font-bold text-gray-800 mt-0.5">{["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.floor((((panelData.heading || 0) % 360 + 360) % 360) / 45 + 0.5) % 8]}</span>
+                                            </div>
                                         </div>
                                     </div>
 
                                     {/* Live ML ETA to reach User */}
                                     <div className="p-3 bg-blue-50/45 border border-blue-100/20 rounded-xl">
-                                        <span className="text-[10px] text-blue-500 font-bold uppercase tracking-wide">Estimated Arrival (To You)</span>
+                                        <span className="text-[10px] text-blue-500 font-bold uppercase tracking-wide">Estimated Time of Arrival (To You)</span>
                                         {busLoading ? (
                                             <div className="flex items-center gap-2 mt-1.5">
                                                 <div className="w-4 h-4 rounded-full border-2 border-blue-500/20 border-t-blue-500 animate-spin" />
@@ -603,8 +633,8 @@ const BusMap = ({
                                             </div>
                                         ) : busETA ? (
                                             <div className="mt-1 flex justify-between items-baseline">
-                                                <div className="text-2xl font-black text-blue-600">{Math.round(busETA.eta_minutes)} <span className="text-xs font-semibold text-blue-500">mins</span></div>
-                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide text-white
+                                                <div className="text-xl font-bold text-blue-600">{Math.round(busETA.eta_minutes)} <span className="text-xs font-bold text-blue-600">mins</span></div>
+                                                <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide text-white
                                                     ${busETA.traffic_status === 'heavy' ? 'bg-red-500' : busETA.traffic_status === 'normal' ? 'bg-amber-500' : 'bg-green-500'}
                                                 `}>
                                                     {busETA.traffic_status} traffic
@@ -613,21 +643,6 @@ const BusMap = ({
                                         ) : (
                                             <div className="text-xs text-gray-400 italic mt-1">Unable to estimate. Open GPS permission.</div>
                                         )}
-                                    </div>
-
-                                    <div className="flex flex-col gap-2.5 border-t border-gray-100 pt-3">
-                                        <div className="flex justify-between items-center text-xs text-gray-500">
-                                            <span>Telemetry Sync Status</span>
-                                            <span className="font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded">Synced</span>
-                                        </div>
-                                        <div className="flex justify-between items-center text-xs text-gray-500">
-                                            <span>Local SQLite Buffer</span>
-                                            <span className="font-semibold text-gray-700">PRAGMA WAL active</span>
-                                        </div>
-                                        <div className="flex justify-between items-center text-xs text-gray-500">
-                                            <span>Edge Filtering Heartbeat</span>
-                                            <span className="font-semibold text-gray-700">30s active</span>
-                                        </div>
                                     </div>
                                 </div>
                             </>

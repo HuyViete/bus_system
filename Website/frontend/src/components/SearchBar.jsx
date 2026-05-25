@@ -24,7 +24,12 @@ const SearchBar = ({ onLocationSelect }) => {
     const handleSelect = (station) => {
         setQuery(station.name)
         if (onLocationSelect) {
-            onLocationSelect({ lat: station.lat, lon: station.lon })
+            onLocationSelect({ 
+                lat: station.lat, 
+                lon: station.lon,
+                id: station.id,
+                name: station.name
+            })
         }
     }
 
