@@ -25,21 +25,21 @@ const MAP_STYLE = {
         {
             id: 'background',
             type: 'background',
-            paint: { 'background-color': '#F2EFE9' } // Light warm beige
+            paint: { 'background-color': '#F2EFE9' }
         },
         {
             id: 'water',
             type: 'fill',
             source: 'hcmc-offline-data',
             'source-layer': 'water',
-            paint: { 'fill-color': '#B3DDF2' } // Soft light blue
+            paint: { 'fill-color': '#B3DDF2' }
         },
         {
             id: 'buildings',
             type: 'fill',
             source: 'hcmc-offline-data',
             'source-layer': 'building',
-            paint: { 'fill-color': '#E5E6EB', 'fill-opacity': 1 } // Solid grey-blue
+            paint: { 'fill-color': '#E5E6EB', 'fill-opacity': 1 }
         },
         {
             id: 'roads-lines',
@@ -48,14 +48,13 @@ const MAP_STYLE = {
             'source-layer': 'transportation',
             filter: ['==', ['geometry-type'], 'LineString'],
             paint: {
-                // All roads are white, slightly thicker for hierarchy
                 'line-color': '#e0dcdcff',
                 'line-width': [
                     'match', ['get', 'class'],
                     'primary', 5,
                     'secondary', 3.5,
                     'tertiary', 2.5,
-                    1.5 // Default for alleys/minor roads
+                    1.5
                 ]
             }
         },
@@ -71,7 +70,7 @@ const MAP_STYLE = {
                 'text-offset': [0, 1]
             },
             paint: {
-                'text-color': '#4A5568', // Slate gray
+                'text-color': '#4A5568',
                 'text-halo-color': '#ffffff',
                 'text-halo-width': 2
             }
@@ -88,7 +87,7 @@ const MAP_STYLE = {
                 'text-size': 11
             },
             paint: {
-                'text-color': '#4A5568', // Slate gray
+                'text-color': '#4A5568',
                 'text-halo-color': '#ffffff',
                 'text-halo-width': 2
             }
