@@ -26,14 +26,21 @@ const MAP_STYLE = {
         {
             id: 'background',
             type: 'background',
-            paint: { 'background-color': '#F3EFE4' }
+            paint: { 'background-color': '#F2EFE9' }
         },
         {
             id: 'water',
             type: 'fill',
             source: 'hcmc-offline-data',
             'source-layer': 'water',
-            paint: { 'fill-color': '#A0D7EA' }
+            paint: { 'fill-color': '#B3DDF2' }
+        },
+        {
+            id: 'buildings',
+            type: 'fill',
+            source: 'hcmc-offline-data',
+            'source-layer': 'building',
+            paint: { 'fill-color': '#E5E6EB', 'fill-opacity': 1 }
         },
         {
             id: 'roads-lines',
@@ -42,24 +49,15 @@ const MAP_STYLE = {
             'source-layer': 'transportation',
             filter: ['==', ['geometry-type'], 'LineString'],
             paint: {
-                'line-color': [
-                    'match', ['get', 'class'],
-                    'primary', '#ffffff',
-                    '#444444'
-                ],
+                'line-color': '#e0dcdcff',
                 'line-width': [
                     'match', ['get', 'class'],
-                    'primary', 2,
-                    1
+                    'primary', 5,
+                    'secondary', 3.5,
+                    'tertiary', 2.5,
+                    1.5
                 ]
             }
-        },
-        {
-            id: 'buildings',
-            type: 'fill',
-            source: 'hcmc-offline-data',
-            'source-layer': 'building',
-            paint: { 'fill-color': '#E7E8EB', 'fill-opacity': 0.8 }
         },
         {
             id: 'poi-labels',
@@ -73,7 +71,7 @@ const MAP_STYLE = {
                 'text-offset': [0, 1]
             },
             paint: {
-                'text-color': '#000000',
+                'text-color': '#4A5568',
                 'text-halo-color': '#ffffff',
                 'text-halo-width': 2
             }
@@ -87,10 +85,10 @@ const MAP_STYLE = {
                 'text-field': ['get', 'name:latin'],
                 'text-font': ['Roboto Regular'],
                 'symbol-placement': 'line',
-                'text-size': 10
+                'text-size': 11
             },
             paint: {
-                'text-color': '#000000',
+                'text-color': '#4A5568',
                 'text-halo-color': '#ffffff',
                 'text-halo-width': 2
             }
@@ -338,14 +336,12 @@ const BusMap = ({
         new PathLayer({
             id: 'bus-routes',
             data: visibleRoutes,
-            pickable: true,
+            pickable: false,
             widthScale: 5,
             widthMinPixels: 2,
             getPath: d => d.path,
             getColor: d => d.color ? [...d.color, 180] : [0, 150, 255, 180],
             getWidth: () => 1,
-            autoHighlight: true,
-            highlightColor: [255, 255, 255, 80],
         }),
 
         // ── Live bus vehicle icons ─────────────────────────────────────────
@@ -462,15 +458,15 @@ const BusMap = ({
 
             {/* Detailed slide-out panel on the right */}
             {detailsPanelOpen && panelData && (
-                <div className="absolute top-0 right-0 z-50 h-screen w-96 bg-white/90 backdrop-blur-xl border-l border-gray-200/50 shadow-2xl flex flex-col transition-all duration-300 animate-slide-in text-gray-800">
+                <div className="absolute top-0 right-0 z-100 h-screen w-96 bg-white/90 backdrop-blur-xl border-l border-gray-200/50 shadow-2xl flex flex-col transition-all duration-300 animate-slide-in text-gray-800">
                     {/* Header */}
                     <div className="p-4 border-b border-gray-200/50 flex justify-between items-center bg-gray-50/50 shrink-0">
                         <div className="flex items-center gap-2.5">
                             <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
                                 {panelType === 'station' ? (
-                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                                 ) : (
-                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10M21 16V10a2 2 0 00-2-2h-3M16 16H8"/></svg>
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10M21 16V10a2 2 0 00-2-2h-3M16 16H8" /></svg>
                                 )}
                             </div>
                             <div className="min-w-0 flex-1">
@@ -482,8 +478,8 @@ const BusMap = ({
                                 </span>
                             </div>
                         </div>
-                        <button 
-                            onClick={() => setDetailsPanelOpen(false)} 
+                        <button
+                            onClick={() => setDetailsPanelOpen(false)}
                             className="p-1.5 rounded-full hover:bg-gray-200/50 text-gray-500 transition-colors shrink-0 cursor-pointer"
                         >
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -508,8 +504,8 @@ const BusMap = ({
                                             const colorString = routeInfo ? `rgb(${routeInfo.color[0]}, ${routeInfo.color[1]}, ${routeInfo.color[2]})` : 'rgb(0, 150, 255)';
 
                                             return (
-                                                <div 
-                                                    key={r.route} 
+                                                <div
+                                                    key={r.route}
                                                     className="p-3 bg-white border border-gray-100 rounded-xl shadow-sm flex flex-col gap-2.5 transition-shadow hover:shadow-md"
                                                     style={{ borderLeftWidth: '4px', borderLeftColor: colorString }}
                                                 >
@@ -552,7 +548,7 @@ const BusMap = ({
                                                                     `}>
                                                                         {r.traffic_status} traffic
                                                                     </span>
-                                                                    
+
                                                                     {/* AI indicator badge */}
                                                                     <span className="text-[9px] font-semibold text-gray-400">
                                                                         {r.basis === 'ml_model' ? '⚡ ML Prediction' : '⚙️ Physics Fallback'}
@@ -618,7 +614,7 @@ const BusMap = ({
                                             <div className="text-xs text-gray-400 italic mt-1">Unable to estimate. Open GPS permission.</div>
                                         )}
                                     </div>
-                                    
+
                                     <div className="flex flex-col gap-2.5 border-t border-gray-100 pt-3">
                                         <div className="flex justify-between items-center text-xs text-gray-500">
                                             <span>Telemetry Sync Status</span>
