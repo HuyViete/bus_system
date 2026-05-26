@@ -70,18 +70,10 @@ const SettingPanel = ({ isOpen, onClose }) => {
 
   return (
     <>
-      {/* Backdrop — click to close */}
-      {isOpen && (
-        <div
-          className='fixed inset-0 z-25'
-          onClick={onClose}
-        />
-      )}
-
       {/* Slide-in panel */}
       <div
-        className={`fixed top-0 z-30 h-screen w-72 bg-white shadow-2xl flex flex-col overflow-hidden transition-transform duration-300
-                    ${isOpen ? 'translate-x-0 pointer-events-auto' : '-translate-x-full pointer-events-none'}`}
+        className={`fixed top-0 z-30 h-screen w-80 bg-white flex flex-col overflow-hidden transition-all duration-300
+                    ${isOpen ? 'translate-x-0 shadow-2xl pointer-events-auto' : '-translate-x-full shadow-none pointer-events-none'}`}
         style={{ left: '48px' }}
       >
         {/* Header */}

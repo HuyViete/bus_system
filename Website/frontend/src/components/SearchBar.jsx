@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import SearchDropdown from './SearchDropdown'
+import { addRecentSearch } from '../services/recentSearches'
 
-const SearchBar = ({ onLocationSelect }) => {
+const SearchBar = ({ onLocationSelect, recentStationSelect }) => {
     const [query, setQuery] = useState('')
     const [isFocused, setIsFocused] = useState(false)
     const [stations, setStations] = useState([])
@@ -13,6 +14,12 @@ const SearchBar = ({ onLocationSelect }) => {
             .catch(err => console.error('[SearchBar] Failed to load stations:', err))
     }, [])
 
+    useEffect(() => {
+        if (recentStationSelect) {
+            setQuery(recentStationSelect.name)
+        }
+    }, [recentStationSelect])
+
     const filteredStations = useMemo(() => {
         if (!query.trim()) return []
         const lowerQuery = query.toLowerCase()
@@ -23,9 +30,18 @@ const SearchBar = ({ onLocationSelect }) => {
 
     const handleSelect = (station) => {
         setQuery(station.name)
+
+        // Save to recent searches
+        addRecentSearch('station', {
+            id: station.id,
+            name: station.name,
+            lat: station.lat,
+            lon: station.lon
+        })
+
         if (onLocationSelect) {
-            onLocationSelect({ 
-                lat: station.lat, 
+            onLocationSelect({
+                lat: station.lat,
                 lon: station.lon,
                 id: station.id,
                 name: station.name

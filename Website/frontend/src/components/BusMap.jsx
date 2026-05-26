@@ -8,6 +8,7 @@ import maplibregl from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { fetchStationDetails, fetchETA } from '../services/api';
+import { toggleSavedItem, isItemSaved } from '../services/savedItems';
 
 // Initialize PMTiles so MapLibre can read the local file
 const protocol = new Protocol();
@@ -130,6 +131,35 @@ const BusMap = ({
     const [stationLoading, setStationLoading] = useState(false);
     const [busETA, setBusETA] = useState(null);
     const [busLoading, setBusLoading] = useState(false);
+    const [isSaved, setIsSaved] = useState(false);
+
+    useEffect(() => {
+        if (panelData && panelType === 'station') {
+            setIsSaved(isItemSaved('station', panelData.id));
+        }
+    }, [panelData, panelType]);
+
+    useEffect(() => {
+        const handleUpdate = () => {
+            if (panelData && panelType === 'station') {
+                setIsSaved(isItemSaved('station', panelData.id));
+            }
+        };
+        window.addEventListener('saved_items_updated', handleUpdate);
+        return () => window.removeEventListener('saved_items_updated', handleUpdate);
+    }, [panelData, panelType]);
+
+    const handleSaveToggle = () => {
+        if (panelData && panelType === 'station') {
+            toggleSavedItem('station', {
+                id: panelData.id,
+                name: panelData.name,
+                position: panelData.position,
+                lat: panelData.position[1],
+                lon: panelData.position[0]
+            });
+        }
+    };
 
     const handleExpandDetails = async (type, data) => {
         setPanelType(type);
@@ -512,12 +542,26 @@ const BusMap = ({
                                 </span>
                             </div>
                         </div>
-                        <button
-                            onClick={() => setDetailsPanelOpen(false)}
-                            className="p-1.5 rounded-full hover:bg-gray-200/50 text-gray-500 transition-colors shrink-0 cursor-pointer"
-                        >
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
+                        <div className="flex items-center gap-0">
+                            {panelType === 'station' && (
+                                <button
+                                    onClick={handleSaveToggle}
+                                    className={`p-1.5 rounded-full transition-colors shrink-0 cursor-pointer ${isSaved ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+                                >
+                                    {isSaved ? (
+                                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16l-7-3.5L5 21V5z" /></svg>
+                                    ) : (
+                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16l-7-3.5L5 21V5z" /></svg>
+                                    )}
+                                </button>
+                            )}
+                            <button
+                                onClick={() => setDetailsPanelOpen(false)}
+                                className="p-1.5 rounded-full hover:bg-gray-200/50 text-gray-500 transition-colors shrink-0 cursor-pointer"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
                     </div>
 
                     {/* Content Body */}
