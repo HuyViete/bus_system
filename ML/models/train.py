@@ -103,7 +103,27 @@ def split_data(df: pd.DataFrame, features: list[str]):
     return X_train, X_val, X_test, y_train, y_val, y_test
 
 
-def tune_hyperparameters(X_train, y_train, X_val, y_val, n_trials: int = 50):
+def detect_gpu() -> dict:
+    """Detect if GPU acceleration is supported by the installed XGBoost and CUDA."""
+    try:
+        # Create a tiny dummy dataset
+        dtest = xgb.DMatrix(np.zeros((2, 2)), label=np.zeros(2))
+        # Try XGBoost >= 2.0 style
+        xgb.train({'device': 'cuda'}, dtest, num_boost_round=1)
+        print('[Train] NVIDIA GPU detected! Enabling GPU acceleration (device=cuda).')
+        return {'device': 'cuda'}
+    except Exception:
+        try:
+            # Try older XGBoost style (< 2.0)
+            xgb.train({'tree_method': 'gpu_hist'}, dtest, num_boost_round=1)
+            print('[Train] NVIDIA GPU detected! Enabling GPU acceleration (tree_method=gpu_hist).')
+            return {'tree_method': 'gpu_hist'}
+        except Exception:
+            print('[Train] No GPU acceleration available or CUDA not configured. Using CPU.')
+            return {'tree_method': 'hist'}
+
+
+def tune_hyperparameters(X_train, y_train, X_val, y_val, n_trials: int = 50, gpu_params: dict = None):
     """Use Optuna to find optimal XGBoost hyperparameters."""
     import optuna
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -111,11 +131,12 @@ def tune_hyperparameters(X_train, y_train, X_val, y_val, n_trials: int = 50):
     dtrain = xgb.DMatrix(X_train, label=y_train)
     dval   = xgb.DMatrix(X_val, label=y_val)
     
+    gpu_config = gpu_params or {'tree_method': 'hist'}
+    
     def objective(trial):
         params = {
             'objective':       'reg:squarederror',
             'eval_metric':     'mae',
-            'tree_method':     'hist',
             'verbosity':       0,
             'n_estimators':    trial.suggest_int('n_estimators', 200, 1500),
             'max_depth':       trial.suggest_int('max_depth', 4, 12),
@@ -125,6 +146,7 @@ def tune_hyperparameters(X_train, y_train, X_val, y_val, n_trials: int = 50):
             'min_child_weight': trial.suggest_int('min_child_weight', 1, 20),
             'reg_alpha':       trial.suggest_float('reg_alpha', 1e-8, 1.0, log=True),
             'reg_lambda':      trial.suggest_float('reg_lambda', 1e-8, 1.0, log=True),
+            **gpu_config,
         }
         
         n_est = params.pop('n_estimators')
@@ -147,15 +169,16 @@ def tune_hyperparameters(X_train, y_train, X_val, y_val, n_trials: int = 50):
     return study.best_params
 
 
-def train_model(X_train, y_train, X_val, y_val, params: dict) -> xgb.Booster:
+def train_model(X_train, y_train, X_val, y_val, params: dict, gpu_params: dict = None) -> xgb.Booster:
     """Train final XGBoost model with given parameters."""
     n_est = params.pop('n_estimators', 1000)
+    gpu_config = gpu_params or {'tree_method': 'hist'}
     
     full_params = {
         'objective':   'reg:squarederror',
         'eval_metric': 'mae',
-        'tree_method': 'hist',
         'verbosity':   1,
+        **gpu_config,
         **params,
     }
     
@@ -278,6 +301,9 @@ def main():
     # Split
     X_train, X_val, X_test, y_train, y_val, y_test = split_data(df, features)
     
+    # Detect GPU
+    gpu_params = detect_gpu()
+    
     # Hyperparameter tuning
     if args.no_tune:
         print('[Train] Skipping tuning — using default parameters')
@@ -293,11 +319,11 @@ def main():
         }
     else:
         print(f'[Train] Tuning hyperparameters ({args.trials} trials)...')
-        best_params = tune_hyperparameters(X_train, y_train, X_val, y_val, n_trials=args.trials)
+        best_params = tune_hyperparameters(X_train, y_train, X_val, y_val, n_trials=args.trials, gpu_params=gpu_params)
     
     # Train final model
     print('\n[Train] Training final model...')
-    model = train_model(X_train, y_train, X_val, y_val, dict(best_params))
+    model = train_model(X_train, y_train, X_val, y_val, dict(best_params), gpu_params=gpu_params)
     
     # Evaluate
     metrics = evaluate_model(model, X_test, y_test, features)

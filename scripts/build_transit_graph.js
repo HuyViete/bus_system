@@ -10,7 +10,7 @@ const ROUTES_PATH   = path.join(ROOT, 'Bus', 'routes.json')
 const STATIONS_PATH = path.join(ROOT, 'Bus', 'stations.json')
 const OUTPUT_PATH   = path.join(ROOT, 'Bus', 'transit_graph.json')
 
-const SNAP_THRESHOLD_M = 200
+const SNAP_THRESHOLD_M = 30
 
 function haversineM(lat1, lon1, lat2, lon2) {
     const R = 6_371_000
