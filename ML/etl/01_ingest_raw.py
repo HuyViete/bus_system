@@ -164,7 +164,7 @@ def main():
     
     elapsed = time.time() - start_time
     print()
-    print(f'[ETL] ═══════════════════════════════════════════')
+    print(f'[ETL] ===========================================')
     print(f'[ETL] Done in {elapsed:.1f}s')
     print(f'[ETL] Total records parsed:   {total_records:>12,}')
     print(f'[ETL] Records filtered out:   {total_filtered:>12,}')

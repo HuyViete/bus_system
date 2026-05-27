@@ -37,13 +37,12 @@ export async function start() {
                     const packet = JSON.parse(message.value.toString())
                     await processGPS(packet)
                     recordProcessingResult(true, Date.now() - startedAt)
-
-                    resolveOffset(message.offset)
-                    messagesProcessed++
                 } catch (err) {
                     recordProcessingResult(false, Date.now() - startedAt)
-                    console.error(`[Kafka] processGPS error: ${err.message}`)
-                    break
+                    console.error(`[Kafka] processGPS error: ${err.message}. Skipping message to prevent loop.`)
+                } finally {
+                    resolveOffset(message.offset)
+                    messagesProcessed++
                 }
 
                 await heartbeat()

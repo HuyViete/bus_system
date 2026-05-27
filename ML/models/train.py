@@ -217,7 +217,7 @@ def evaluate_model(model: xgb.Booster, X_test, y_test, features: list[str]) -> d
         'test_samples': int(len(y_test)),
     }
     
-    print(f'\n[Train] ═══ Test Set Results ═══════════════════')
+    print(f'\n[Train] === Test Set Results ===================')
     print(f'  MAE:  {mae:.2f} seconds')
     print(f'  RMSE: {rmse:.2f} seconds')
     print(f'  MAPE: {mape:.1f}%')
@@ -367,7 +367,7 @@ def main():
     print(f'[Train] Training metrics saved: {metrics_path}')
     
     elapsed = time.time() - start_time
-    print(f'\n[Train] ═══ All done in {elapsed:.0f}s ═══')
+    print(f'\n[Train] === All done in {elapsed:.0f}s ===')
 
 
 if __name__ == '__main__':

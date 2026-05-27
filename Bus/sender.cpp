@@ -22,30 +22,27 @@ Sender::~Sender() {
 bool Sender::start(const std::string& host, int port) {
     host_ = host;
     port_ = port;
+
     socket_ = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (socket_ == INVALID_SOCKET) {
-        ++gBusErrorCounters.senderConnectFailures;
-        if (kVerboseBusLogs)
-            std::cerr << "[Sender] socket() failed: " << net::lastError() << "\n";
-        return false;
+    if (socket_ != INVALID_SOCKET) {
+        struct sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port   = htons(port);
+        inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
+
+        if (::connect(socket_, (struct sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
+            net::closeSocket(socket_);
+            socket_ = INVALID_SOCKET;
+        }
     }
 
-    struct sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port   = htons(port);
-    inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
-
-    if (::connect(socket_, (struct sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
-        ++gBusErrorCounters.senderConnectFailures;
+    if (socket_ != INVALID_SOCKET) {
         if (kVerboseBusLogs)
-            std::cerr << "[Sender] connect() failed: " << net::lastError() << "\n";
-        net::closeSocket(socket_);
-        socket_ = INVALID_SOCKET;
-        return false;
+            std::cout << "[Sender] Connected to " << host << ":" << port << "\n";
+    } else {
+        if (kVerboseBusLogs)
+            std::cerr << "[Sender] Could not connect to " << host << ":" << port << ". Will retry in background...\n";
     }
-
-    if (kVerboseBusLogs)
-        std::cout << "[Sender] Connected to " << host << ":" << port << "\n";
 
     running_ = true;
     worker_  = std::thread(&Sender::sendLoop, this);
@@ -88,9 +85,16 @@ void Sender::sendLoop() {
             
             bool success = sendRaw(payload);
             if (!success && running_) {
-                if (kVerboseBusLogs)
-                    std::cerr << "[Sender] Connection lost. Reconnecting...\n";
-                if (socket_ != INVALID_SOCKET) {
+                bool was_connected = (socket_ != INVALID_SOCKET);
+                if (kVerboseBusLogs) {
+                    if (was_connected) {
+                        std::cerr << "[Sender] Connection lost. Reconnecting...\n";
+                    } else {
+                        std::cerr << "[Sender] Connecting to server...\n";
+                    }
+                }
+                
+                if (was_connected) {
                     net::closeSocket(socket_);
                     socket_ = INVALID_SOCKET;
                 }
@@ -201,6 +205,10 @@ std::string Sender::serializeGPS(const GPSData& d) {
     if (d.distToNextStop >= 0) {
         ss << std::setprecision(1)
            << ",\"dist_to_next_stop\":" << d.distToNextStop;
+    }
+    
+    if (!d.status.empty()) {
+        ss << ",\"status\":\"" << d.status << "\"";
     }
 
     ss << "}";
