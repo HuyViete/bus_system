@@ -164,12 +164,23 @@ The system is composed of five distinct modules:
 The Edge Device Simulator acts as the data generation foundation of the transit system. Its primary role is to simulate the real-world behavior of a massive fleet of public transit vehicles. It generates realistic, event-driven GPS telemetry and edge-computed analytics (such as hard-braking, route progress, and stop arrivals), acting as the distributed sensors of the network. This module ensures the system is subjected to realistic high-throughput data loads, simulating the real-time constraints and network behaviors of edge devices operating in the field.
 
 \textbf{Technologies:} C++, standard threads, TCP Sockets, embedded SQLite.
+\medskip
 
+\textbf{Architecture Pattern (Multi-Threaded Event Loop)}: The Edge Simulator is built on a highly concurrent, multi-threaded C++ architecture designed to isolate I/O operations from real-time physics simulations. This ensures that network latency or database writes never block the deterministic 3-second simulation tick rate, guaranteeing accurate and continuous telemetry generation even under poor network conditions. The structure is as follows:
+\begin{itemize}
+    \item \textbf{GPS Simulation Loop}: Runs the deterministic event-first state machine (\texttt{speed\_sim.h}) at exactly 3-second ticks to generate highly realistic telemetry.
+    \item \textbf{Data Access Layer (\texttt{database.cpp})}: Isolates embedded SQLite transactions into a background thread running in WAL (Write-Ahead Logging) mode, preventing I/O bottlenecks.
+    \item \textbf{Network Workers (\texttt{sender.cpp}, \texttt{receiver.cpp})}: Dedicated threads maintaining persistent cross-platform TCP sockets (\texttt{net\_compat.h}), entirely decoupling network transmission latency from the physics tick rate.
+    \item \textbf{Fleet Orchestration (\texttt{main.cpp})}: Acts as the controller, managing a thread pool that dynamically spawns, manages, and cleans up thousands of concurrent vehicle instances.
+\end{itemize}
+\medskip
+
+\textbf{Core Functionalities:}
 \begin{itemize}
     \item \textbf{Lifecycle \& Sub-threads}:
     \begin{itemize}
         \item GPS Thread: Generates snapshot data every 3 seconds via an event-first state machine. Computes distance and stop proximity via a precomputed transit graph, applying edge filtering (sending only on significant changes or events).
-        \item Database Thread (SQLite): Operates in WAL mode to buffer coordinates locally (\texttt{db/BUS-<id>.db}). Built to handle offline-first configurations. Contains optimization rules to not bottleneck I/O when simulating thousands of buses.
+        \item Database Thread (SQLite): Operates in WAL mode to buffer coordinates locally (\path{db/BUS-<id>.db}). Built to handle offline-first configurations. Contains optimization rules to not bottleneck I/O when simulating thousands of buses.
         \item Sender Thread: Maintains a long-lived persistent TCP connection sending raw HTTP POST payloads (JSON) to the core server, eliminating socket teardown overhead.
         \item Receiver Thread: Listens on port 4000 for incoming remote commands (\texttt{STOP}, \texttt{REROUTE}).
     \end{itemize}
@@ -179,8 +190,21 @@ The Edge Device Simulator acts as the data generation foundation of the transit 
 \subsubsection{Core Server (\texttt{Server/})}
 The Core Server serves as the central nervous system and the primary data ingestion engine of the architecture. Its role is to absorb the massive influx of telemetry data from the edge devices, process it asynchronously, and maintain the absolute state of the transit network. It provides heavy-duty background processing, encompassing data persistence, real-time anomaly detection, trip lifecycle management, and spatial-temporal travel time estimation via integrated machine learning models.
 
-\textbf{Technologies:} Node.js (Express), PostgreSQL (\texttt{pg}), ONNX Runtime (ML), Apache Kafka (\texttt{kafkajs}).
+\textbf{Technologies:} Node.js (Express), PostgreSQL, ONNX Runtime, Apache Kafka.
+\medskip
 
+\textbf{Architecture Pattern (MVC \& Services)}: The Core Server is strictly organized utilizing the Model-View-Controller (MVC) and Service-Oriented Architecture patterns to maintain a clean separation of concerns and support future scalability. This decoupling allows the ingestion pipeline to respond to thousands of edge devices with minimal latency, while heavy background tasks (like ML inference and database writes) execute autonomously without blocking the main event loop, significantly enhancing horizontal scalability. The internal directory structure is organized as follows:
+\begin{itemize}
+    \item \textbf{\texttt{routes/}}: Defines the API endpoints (e.g., \texttt{/api/gps}, \texttt{/api/events}) and maps HTTP requests directly to their corresponding controllers.
+    \item \textbf{\texttt{controllers/}}: Acts as the "Controller" layer. It handles HTTP request parsing, input validation, and immediate response delivery (e.g., \texttt{gpsController.js}), delegating background tasks to services.
+    \item \textbf{\texttt{services/}}: Contains business logic isolated from HTTP mechanics, including async telemetry ingestion, ML inference via \path{mlPredictorService}, and spatial detour calculations.
+    \item \textbf{\texttt{models/}}: Acts as the "Model" layer, containing the raw SQL queries and data access objects for PostgreSQL interactions, keeping database logic encapsulated.
+    \item \textbf{\texttt{migrations/}}: Manages the version-controlled SQL schemas and database state transitions, ensuring a reproducible PostgreSQL environment.
+    \item \textbf{\texttt{libs/}}: Houses reusable utility singletons, including the PostgreSQL connection pool (\texttt{db.js}), the Kafka publisher client (\texttt{kafka.js}), and geospatial mathematics functions (\texttt{geo.js}).
+\end{itemize}
+\medskip
+
+\textbf{Core Functionalities:}
 \begin{itemize}
     \item \textbf{Message Queueing (Apache Kafka)}: A KafkaJS client (\texttt{libs/kafka.js}) is integrated to decouple raw ingestion from heavy processing, establishing a scalable ingestion queue for future stream processing (planned phase).
     \item \textbf{Ingestion Pipeline (\texttt{processGPS})}: Validates payload formats and returns a fast HTTP 200 to keep bus latency minimized. Dual processing path handles edge-computed fields while retaining legacy backward-compatibility.
@@ -203,7 +227,22 @@ The Core Server serves as the central nervous system and the primary data ingest
 The Website Backend bridges the gap between the public-facing user interface and the internal core infrastructure. Its primary role is to protect the Core Server from public internet exposure and excessive load. It achieves this by aggregating client queries, handling user authentication and sessions, and aggressively caching live transit data to serve thousands of concurrent users with minimal latency, falling back gracefully if the internal network experiences downtime.
 
 \textbf{Technologies:} Node.js (Express), MongoDB (\texttt{mongoose}), JWT Auth.
+\medskip
 
+\textbf{Architecture Pattern (MVC)}: Similar to the Core Server, the Website Backend utilizes a strict MVC architectural pattern to securely manage API interactions and MongoDB state. This strict boundary between controllers and models ensures that sensitive authentication logic remains highly secure, while centralized caching in the controllers effectively absorbs immense frontend traffic spikes without overwhelming the underlying microservices. The structure is as follows:
+\begin{itemize}
+    \item \textbf{\texttt{routes/}}: Maps public-facing endpoints (e.g., \texttt{/api/auth}, \texttt{/api/buses}) to controller logic.
+    \item \textbf{\texttt{controllers/}}: Implements application flow through focused controller files:
+    \begin{itemize}
+        \item \path{authController.js}: handles JWT token generation.
+        \item \path{busController.js}: manages the 3-second TTL cache proxy.
+    \end{itemize}
+    \item \textbf{\texttt{models/}}: Acts as the "Model" layer, defining the Mongoose schemas and strict structural definitions for the \texttt{Users}, \texttt{Sessions}, and \texttt{UserActions} collections.
+    \item \textbf{\texttt{middlewares/}}: Intercepts incoming requests to perform JWT authorization checks, token validation, and rate-limiting before the request reaches the controllers.
+\end{itemize}
+\medskip
+
+\textbf{Core Functionalities:}
 \begin{itemize}
     \item \textbf{User Authentication}: Backed by a cloud-hosted MongoDB Atlas instance. Manages user registration and login endpoints utilizing \texttt{bcrypt} for password hashing and \texttt{jsonwebtoken} (JWT) for secure session tracking.
     \item \textbf{Query Aggregation \& Caching}: Proxies real-time metric, live bus, and distance/detour endpoints to the core server. It utilizes an in-memory cache (3s TTL) to drastically reduce load on the core server, serving stale cached data gracefully if the Big Server is temporarily unreachable.
@@ -213,9 +252,20 @@ The Website Backend bridges the gap between the public-facing user interface and
 The User Interface is the highly interactive, visual frontend of the system, designed to deliver a smooth and real-time transit tracking experience to end-users. Its role is to transform raw, high-frequency data streams into comprehensible geospatial visualizations. It handles the rendering of thousands of dynamic vehicle markers and complex transit routes on a map, providing users with live arrival forecasts, alternative detour recommendations, and comprehensive search capabilities.
 
 \textbf{Technologies:} React, Vite, TailwindCSS, Zustand, Zod, MapLibre GL JS, deck.gl.
+\medskip
 
+\textbf{Architecture Pattern (Component-Driven SPA)}: The Frontend is structured as a modern Single-Page Application (SPA) utilizing a strict component-driven architecture and centralized state management. This approach isolates complex UI logic from data fetching, enabling the seamless rendering of dense WebGL map layers concurrently with floating interactive panels, ensuring a highly responsive user experience without blocking the main browser thread. The structure is as follows:
 \begin{itemize}
-    \item \textbf{Hardware Acceleration}: Shifts calculation to the client GPU via WebGL using \textbf{deck.gl} (\texttt{IconLayer}), allowing buttery-smooth 60fps animations for real-time map tracking despite rendering $>$2000 active nodes concurrently alongside 10,000 vertices mapping transit routes.
+    \item \textbf{\texttt{src/components/}}: Houses modular, reusable UI components. Critical overlays like \texttt{ETAPanel.jsx} and \texttt{DetourPanel.jsx} are decoupled from the base map layer.
+    \item \textbf{\texttt{src/pages/}}: Contains top-level route views (e.g., \texttt{Home.jsx}) that compose multiple components into full screens, managed by React Router.
+    \item \textbf{\texttt{src/services/}}: Isolates all API communication logic (using Axios) from UI rendering, handling endpoints like live tracking and user authentication.
+    \item \textbf{\texttt{src/hooks/}}: Extracts complex React lifecycle logic, such as the 3-second \texttt{useLiveBuses.js} polling hook, keeping components clean and focused solely on presentation.
+\end{itemize}
+\medskip
+
+\textbf{Core Functionalities:}
+\begin{itemize}
+    \item \textbf{Hardware Acceleration}: Uses WebGL and deck.gl IconLayer on the client GPU for smooth 60fps map animations, even with $>$ 2000 active nodes and 10,000 route vertices.
     \item \textbf{Data Fetching}: Implements a \texttt{useLiveBuses} polling hook (3s interval) to sync with the Website Backend's cached state.
     \item \textbf{Geospatial Context}: Integrates MapLibre base tiles with drawn OpenStreetMap boundaries representing the exact 340 transit routes and 5,500 bus stations.
     \item \textbf{Interactive Overlays}: Features dynamic floating panels powered by Zustand for state and Zod for validation, including:
@@ -226,15 +276,38 @@ The User Interface is the highly interactive, visual frontend of the system, des
 \end{itemize}
 
 \subsubsection{Machine Learning Pipeline (\texttt{ML/})}
-The Machine Learning Pipeline is an offline processing and training environment that powers the predictive intelligence of the system. Its role is to consume vast amounts of historical telemetry data to train and optimize spatial-temporal models. These models are responsible for real-time travel time estimation and traffic analysis. The pipeline transforms raw data into deployable model artifacts that the Core Server can execute directly, bridging the gap between historical data analysis and real-time operational prediction.
+The Machine Learning Pipeline is an offline processing and training environment that powers the predictive intelligence of the system. Its role is to consume vast amounts of historical telemetry data to train and optimize spatial-temporal models for real-time travel time estimation and traffic analysis. The pipeline transforms raw data into deployable model artifacts that the Core Server can execute directly.
 
 \textbf{Technologies:} Python, XGBoost, Optuna, ONNX.
+\medskip
 
+\textbf{Architecture Pattern (ETL \& Model Pipeline)}: The Machine Learning module follows a strict modular pipeline architecture, isolating data preparation from model training and artifact generation. By physically decoupling the data transformation steps from the mathematical training loops, the pipeline enables rapid experimentation and hyperparameter tuning. It also guarantees that the final optimized models are fully portable and can be deployed directly into production server environments without runtime dependencies. The structure is as follows:
 \begin{itemize}
-    \item \textbf{ETL Pipeline (\texttt{etl/})}: Parses raw historical telemetry, maps spatial grids, and chunks data for training.
-    \item \textbf{Model Training (\texttt{models/})}: Utilizes XGBoost regression with Optuna for hyperparameter optimization to learn spatial-temporal travel times.
-    \item \textbf{Artifact Generation (\texttt{artifacts/})}: Exports optimized models to \texttt{.onnx} format (e.g., \texttt{eta\_model.onnx}) alongside feature metadata to be directly executed by the Node.js server without requiring a Python runtime.
+    \item \textbf{\texttt{etl/}}: Acts as the Extract, Transform, Load (ETL) layer. It parses raw historical PostgreSQL dumps, performs spatial grid discretization mapping, and structures the 11-dimensional feature vectors.
+    \item \textbf{\texttt{models/}}: Houses the core algorithmic logic, primarily utilizing XGBoost regression scripts wrapped with Optuna for automated hyperparameter tuning.
+    \item \textbf{\texttt{artifacts/}}: Serves as the immutable output directory. Once training concludes, models and their feature scaling metadata are exported here as \texttt{.onnx} binaries for direct Node.js consumption.
+    \item \textbf{\texttt{main.py}}: Functions as the centralized CLI orchestrator, allowing developers to execute specific phases (e.g., \texttt{train}, \texttt{etl}, \texttt{all}) independently.
 \end{itemize}
+\medskip
+
+\textbf{Feature Engineering \& Spatial Grid Discretization}
+
+The ETL pipeline (\texttt{etl/}) parses historical telemetry to construct a highly specialized 11-dimensional feature vector. This vector encapsulates spatial metrics (\path{grid_lat}, \path{grid_lon}), physical distance (\path{distance_m}), and temporal data (\path{hour}, \path{minute_bucket}, \path{day_of_week}). It also includes critical environmental flags such as \texttt{is\_weekend}, \texttt{is\_rush}, \texttt{door\_open}, \texttt{aircon}, and \texttt{near\_station}. 
+
+A core component of this algorithm is spatial grid discretization. Every continuous GPS coordinate is mapped to a discrete 111m $\times$ 111m grid cell using fast floor-division (e.g., $\text{grid\_lat} = \lfloor \text{lat} \times 1000 \rfloor$). This technique prevents overfitting to exact coordinates while allowing the model to learn hyper-local traffic patterns. By combining these spatial grids with temporal features, the XGBoost model accurately captures nuanced urban realities, such as understanding that traversing a specific city block at 5 PM on a Tuesday might take 45 seconds, whereas the exact same block at 11 AM on a Sunday only takes 12 seconds.
+
+\textbf{Model Training \& Artifact Generation}
+
+The training environment utilizes XGBoost regression alongside Optuna for automated hyperparameter optimization to learn these spatial-temporal travel times. Once optimization is complete, the models are exported to the \texttt{.onnx} format (e.g., \texttt{eta\_model.onnx}) alongside their feature metadata. This architectural decision allows the Node.js Core Server to execute lightning-fast inference directly using ONNX Runtime, eliminating the need to maintain an embedded Python environment in production.
+\medskip
+
+\textbf{Alternative Bezier Detour Routing}
+
+The deployed ONNX models directly power the system's dynamic rerouting capabilities without relying on external pathfinding engines like OSRM or Google Directions APIs. This keeps the infrastructure fully self-contained, entirely eliminating external API rate limits and usage costs. 
+
+The routing algorithm begins with a lightweight congestion check preflight. The \texttt{checkCongestion()} function evaluates the direct path's predicted travel time; if the time exceeds twice the standard free-flow baseline, congestion is confirmed and detour calculation is initiated. This preflight mechanism prevents wasted CPU cycles when traffic is flowing normally. 
+
+When congestion is detected, the algorithm computes the direct bearing between the origin and destination points. It then offsets a midpoint perpendicular to this bearing at distances of 300m and 500m. Using these offset midpoints, it generates smooth, curved detour paths via quadratic Bezier interpolation ($B(t) = (1-t)^2 P_0 + 2(1-t)t P_1 + t^2 P_2$). Applying the two offset distances to both the left and right perpendicular sides produces exactly four alternative path candidates. Every point along each detour curve is evaluated by the ONNX ML model to produce a precise ETA, and the top three fastest predicted routes are immediately returned to the frontend.
 
 \section{Data Contracts \& Schemas}
 \subsection{Edge Telemetry Payload}
@@ -263,10 +336,6 @@ The C++ Sender transmits JSON over a persistent HTTP POST socket. Below is an ex
 \begin{longtable}{|p{0.30\textwidth}|p{0.12\textwidth}|p{0.48\textwidth}|}
 \hline
 \textbf{API Path} & \textbf{Method} & \textbf{Description} \\ \hline
-\endfirsthead
-\hline
-\textbf{API Path} & \textbf{Method} & \textbf{Description} \\ \hline
-\endhead
 \path{/api/gps} & POST & Ingestion of raw edge telemetry payloads \\ \hline
 \path{/api/events/live} & GET & Retrieves the latest fleet snapshot from the \texttt{gps\_latest} state \\ \hline
 \path{/api/events/stops} & GET & Retrieves stop event stream \\ \hline
@@ -288,19 +357,14 @@ The C++ Sender transmits JSON over a persistent HTTP POST socket. Below is an ex
 \path{/dashboard/anomalies} & GET & Anomaly detail panel \\ \hline
 \path{/dashboard/operations} & GET & Dwell times, speed profiles, and headway stats \\ \hline
 \path{/dashboard/ingestion} & GET & Ingestion pipeline KPIs \\ \hline
-\caption{Core Server API Contracts}\\
 \end{longtable}
 
 \subsubsection{Website Backend APIs}
 \begin{longtable}{|p{0.30\textwidth}|p{0.12\textwidth}|p{0.48\textwidth}|}
 \hline
 \textbf{API Path} & \textbf{Method} & \textbf{Description} \\ \hline
-\endfirsthead
-\hline
-\textbf{API Path} & \textbf{Method} & \textbf{Description} \\ \hline
-\endhead
 \path{/api/auth/signup} & POST & Registers a new user via MongoDB and bcrypt \\ \hline
-\path{/api/auth/signin} & POST & Authenticates user and returns a JWT session token \\ \hline
+\path{/api/auth/signin} & POST & Authenticates user and returns JWT session token \\ \hline
 \path{/api/buses/live} & GET & Proxies live bus data from the Core Server with a 3s in-memory cache \\ \hline
 \path{/api/distance/} & GET & Proxies general distance queries to the Core Server \\ \hline
 \path{/api/distance/nearest-bus} & GET & Proxies nearest-bus calculations \\ \hline
@@ -308,7 +372,6 @@ The C++ Sender transmits JSON over a persistent HTTP POST socket. Below is an ex
 \path{/api/distance/detour} & GET & Proxies alternative detour path generation \\ \hline
 \path{/api/distance/detour/check} & GET & Proxies spatial congestion checks \\ \hline
 \path{/api/distance/station-details} & GET & Proxies station detail retrieval \\ \hline
-\caption{Website Backend API Contracts}\\
 \end{longtable}
 
 \section{Database Design}
@@ -319,7 +382,7 @@ PostgreSQL serves as the primary relational database and core analytics engine f
 
 \subsubsection*{\texttt{gps\_latest}}
 Stores the most recent telemetry state for each active vehicle, including edge-computed distances.
-\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\begin{longtable}{|p{0.20\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
 \hline
 \textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
 \path{vehicle_id} & \path{TEXT} & PK & Unique identifier for the vehicle. \\ \hline
@@ -336,7 +399,7 @@ Stores the most recent telemetry state for each active vehicle, including edge-c
 
 \subsubsection*{\texttt{gps\_telemetry\_raw}}
 An append-only historical ledger containing all raw telemetry packets for machine learning and auditing.
-\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\begin{longtable}{|p{0.20\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
 \hline
 \textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
 \path{id} & \path{BIGSERIAL} & PK & Auto-incrementing unique identifier for the record. \\ \hline
@@ -354,7 +417,7 @@ An append-only historical ledger containing all raw telemetry packets for machin
 
 \subsubsection*{\texttt{ingest\_metrics\_minute}}
 Aggregated ingestion pipeline performance and throughput KPIs on a per-minute basis.
-\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\begin{longtable}{|p{0.20\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
 \hline
 \textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
 \path{id} & \path{BIGSERIAL} & PK & Auto-incrementing unique identifier. \\ \hline
@@ -376,7 +439,7 @@ Aggregated ingestion pipeline performance and throughput KPIs on a per-minute ba
 
 \subsubsection*{\texttt{stop\_events}}
 Logs occurrences of vehicles arriving or departing specific transit stops.
-\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\begin{longtable}{|p{0.20\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
 \hline
 \textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
 \path{id} & \path{SERIAL} & PK & Unique identifier for the stop event. \\ \hline
@@ -393,7 +456,7 @@ Logs occurrences of vehicles arriving or departing specific transit stops.
 
 \subsubsection*{\texttt{dwell\_times}}
 Records the calculated duration a vehicle spent idle at a transit stop.
-\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\begin{longtable}{|p{0.20\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
 \hline
 \textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
 \path{id} & \path{SERIAL} & PK & Unique identifier for the dwell time record. \\ \hline
@@ -407,7 +470,7 @@ Records the calculated duration a vehicle spent idle at a transit stop.
 
 \subsubsection*{\texttt{trip\_logs}}
 Tracks the lifecycle of a vehicle's trip from start to finish along a route.
-\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\begin{longtable}{|p{0.20\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
 \hline
 \textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
 \path{id} & \path{SERIAL} & PK & Unique identifier for the trip log. \\ \hline
@@ -422,7 +485,7 @@ Tracks the lifecycle of a vehicle's trip from start to finish along a route.
 
 \subsubsection*{\texttt{speed\_profiles}}
 Stores segment-by-segment speed analytics between two transit stops.
-\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\begin{longtable}{|p{0.20\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
 \hline
 \textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
 \path{id} & \path{SERIAL} & PK & Unique identifier for the speed profile. \\ \hline
@@ -441,7 +504,7 @@ Stores segment-by-segment speed analytics between two transit stops.
 
 \subsubsection*{\texttt{headway\_records}}
 Tracks the time gap (headway) between consecutive vehicles arriving at the same stop to detect bunching.
-\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\begin{longtable}{|p{0.20\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
 \hline
 \textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
 \path{id} & \path{SERIAL} & PK & Unique identifier for the headway record. \\ \hline
@@ -455,7 +518,7 @@ Tracks the time gap (headway) between consecutive vehicles arriving at the same 
 
 \subsubsection*{\texttt{anomaly\_events}}
 Logs hazard events and infractions such as speeding, hard braking, or deviating off-route.
-\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\begin{longtable}{|p{0.20\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
 \hline
 \textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
 \path{id} & \path{SERIAL} & PK & Unique identifier for the anomaly event. \\ \hline
@@ -469,9 +532,10 @@ Logs hazard events and infractions such as speeding, hard braking, or deviating 
 \path{occurred_at} & \path{TIMESTAMPTZ} & & Timestamp when the anomaly occurred. \\ \hline
 \end{longtable}
 
+\pagebreak
 \subsubsection*{\texttt{stops}}
 Defines the geographical points and sequencing of transit stops along routes.
-\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\begin{longtable}{|p{0.20\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
 \hline
 \textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
 \path{stop_id} & \path{TEXT} & PK & Identifier of the stop. \\ \hline
@@ -482,11 +546,11 @@ Defines the geographical points and sequencing of transit stops along routes.
 \end{longtable}
 
 \subsection{MongoDB Database (Website Backend)}
-While PostgreSQL acts as the core analytics engine for processing massive transit telemetry streams, the MongoDB Database acts as the persistence layer for the Website Backend. It is specifically designed to manage stateful interactions decoupled from the data pipeline, including secure user authentication, persistent session management, and the tracking of end-user preferences, historical searches, and saved actions.
+MongoDB Database acts as the persistence layer for the Website Backend. It is specifically designed to manage stateful interactions decoupled from the data pipeline, including secure user authentication, persistent session management, and the tracking of end-user preferences, historical searches, and saved actions.
 
 \subsubsection*{\texttt{Users Collection}}
 Secures user registration, profiles, and login credentials utilizing \texttt{bcrypt} hashing.
-\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\begin{longtable}{|p{0.20\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
 \hline
 \textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
 \path{id} & \path{ObjectId} & PK & Unique identifier automatically generated by MongoDB. \\ \hline
@@ -503,7 +567,7 @@ Secures user registration, profiles, and login credentials utilizing \texttt{bcr
 
 \subsubsection*{\texttt{Sessions Collection}}
 Manages persistent user authentication sessions utilizing JSON Web Tokens (JWT) and refresh tokens.
-\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\begin{longtable}{|p{0.20\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
 \hline
 \textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
 \path{id} & \path{ObjectId} & PK & Unique identifier automatically generated by MongoDB. \\ \hline
@@ -516,7 +580,7 @@ Manages persistent user authentication sessions utilizing JSON Web Tokens (JWT) 
 
 \subsubsection*{\texttt{UserActions Collection}}
 Responsible for saving end-user related actions (such as historical searches, preferences, and session data) entirely separated from the heavy transit telemetry workloads.
-\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\begin{longtable}{|p{0.20\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
 \hline
 \textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
 \path{id} & \path{ObjectId} & PK & Unique identifier automatically generated by MongoDB. \\ \hline
@@ -535,8 +599,8 @@ Responsible for saving end-user related actions (such as historical searches, pr
     \item \textbf{Message Queueing (Apache Kafka):} In the background, the server asynchronously publishes the telemetry payload to an Apache Kafka topic. Kafka acts as a scalable, high-throughput message broker, fully decoupling raw ingestion from the heavy downstream processing pipeline and ensuring resiliency during peak traffic spikes.
     \item \textbf{Asynchronous Validation \& Persistence:} Consuming from the processing pipeline, the server validates the payload's geographical bounds. It appends the data to the \path{gps_telemetry_raw} PostgreSQL table (for ML training) and performs an upsert on the \texttt{gps\_latest} table to reflect the fleet's current live state.
     \item \textbf{Server-Side Analytics Processing:} The core pipeline executes secondary analysis: processing edge-provided stop events into \texttt{dwell\_times}, calculating headways, detecting server-side anomalies (e.g., GPS loss, off-route deviations), and updating trip lifecycles.
-    \item \textbf{Client Polling (Frontend to Backend):} As users view the React \texttt{Website/frontend/}, the UI initiates an HTTP \texttt{GET} request to the Website Backend via \texttt{/api/buses/live} every 3 seconds to retrieve the latest fleet snapshot.
-    \item \textbf{Backend Proxy \& Caching (\texttt{Website/backend/}):} The Backend receives the \texttt{GET /api/buses/live} request. It serves the result from a fast 3-second TTL in-memory cache. If the cache is stale, it proxies the request down to the Core Server's \texttt{GET /api/events/live} endpoint.
+    \item \textbf{Client Polling (Frontend to Backend):} As users view the React \texttt{Website/frontend/}, the UI initiates an HTTP \texttt{GET} request to the Website Backend via \path{/api/buses/live} every 3 seconds to retrieve the latest fleet snapshot.
+    \item \textbf{Backend Proxy \& Caching (\texttt{Website/backend/}):} The Backend receives the \path{GET /api/buses/live} request. It serves the result from a fast 3-second TTL in-memory cache. If the cache is stale, it proxies the request down to the Core Server's \path{GET /api/events/live} endpoint.
     \item \textbf{Advanced Insights Requests:} User interactions trigger specialized \texttt{GET} requests through the Backend proxy: \texttt{/api/distance/estimate} calls the ONNX ML model for travel time prediction, and \texttt{/api/distance/detour} invokes Bezier curve generation for alternative routes.
     \item \textbf{GPU Rendering \& Visual Consumption:} Upon receiving the JSON responses, the React application updates its Zustand state. MapLibre GL supplies the base map, while deck.gl uses the data to render 60fps WebGL visualizations of moving vehicles, dynamic detour comparisons, and predictive ETA floating panels.
 \end{enumerate}
