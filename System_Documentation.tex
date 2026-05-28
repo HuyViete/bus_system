@@ -1,0 +1,557 @@
+\documentclass[a4paper]{article}
+
+\usepackage{a4wide,amssymb,epsfig,latexsym,multicol,array,hhline,fancyhdr}
+\usepackage[T2A,T5]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{lastpage}
+\usepackage[lined,boxed,commentsnumbered]{algorithm2e}
+\usepackage{listings}
+\usepackage{verbatim}
+\usepackage{minted}
+\usepackage{enumerate}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{color}
+\usepackage{graphicx}	
+\usepackage{parskip}						% Standard graphics package
+\usepackage{array}
+\usepackage{tabularx, caption}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{multicol}
+\usepackage{rotating}
+\usepackage{graphics}
+\usepackage{geometry}
+\geometry{a4paper,left=25mm,right=25mm,top=30mm,bottom=40mm}
+\usepackage{setspace}
+\usepackage{epsfig}
+\usepackage{tikz}
+\usetikzlibrary{arrows,backgrounds}
+\usepackage{hyperref}
+\usepackage{subcaption}
+\def\thesislayout{	% A4: 210 × 297
+	\geometry{
+		a4paper,
+		total={160mm,240mm},  % fix over page
+		left=30mm,
+		top=30mm,
+	}
+}
+\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.5}
+\setlength{\tabcolsep}{6pt}
+
+\hypersetup{urlcolor=blue,linkcolor=black,citecolor=black,colorlinks=true,pdftitle={Big Data Transit System Documentation Outline}} 
+%\usepackage{pstcol} 								% PSTricks with the standard color package
+
+\newtheorem{theorem}{{\bf Theorem}}
+\newtheorem{property}{{\bf Property}}
+\newtheorem{proposition}{{\bf Proposition}}
+\newtheorem{corollary}[proposition]{{\bf Corollary}}
+\newtheorem{lemma}[proposition]{{\bf Lemma}}
+
+\AtBeginDocument{\renewcommand*\contentsname{Table of Contents}}
+%\AtBeginDocument{\renewcommand*\refname{Nguồn tham khảo}}
+%\usepackage{fancyhdr}
+\setlength{\headheight}{40pt}
+\pagestyle{fancy}
+\fancyhead{} % clear all header fields
+\fancyhead[L]{
+ \begin{tabular}{rl}
+    \begin{picture}(25,15)(0,0)
+    \put(0,-8){\includegraphics[width=8mm, height=8mm]{Images/bachkhoa_logo.png}}
+    %\put(0,-8){\epsfig{width=10mm,figure=hcmut.eps}}
+   \end{picture}&
+	%\includegraphics[width=8mm, height=8mm]{hcmut.png} & %
+	\begin{tabular}{l}
+		\textbf{\bf \ttfamily Ho Chi Minh City University of Technology}\\
+		\textbf{\bf \ttfamily Faculty of Computer Science and Engineering}
+	\end{tabular} 	
+ \end{tabular}
+}
+\fancyhead[R]{
+	\begin{tabular}{l}
+		\tiny \bf \\
+		\tiny \bf 
+	\end{tabular}  }
+\fancyfoot{} % clear all footer fields
+\fancyfoot[L]{\scriptsize \ttfamily Academic year 2025 - 2026}
+\fancyfoot[R]{\scriptsize \ttfamily Page {\thepage}/\pageref{LastPage}}
+\renewcommand{\headrulewidth}{0.3pt}
+\renewcommand{\footrulewidth}{0.3pt}
+
+
+%%%
+\setcounter{secnumdepth}{4}
+\setcounter{tocdepth}{3}
+\makeatletter
+\newcounter {subsubsubsection}[subsubsection]
+\renewcommand\thesubsubsubsection{\thesubsubsection .\@alph\c@subsubsubsection}
+\newcommand\subsubsubsection{\@startsection{subsubsubsection}{4}{\z@}%
+                                     {-3.25ex\@plus -1ex \@minus -.2ex}%
+                                     {1.5ex \@plus .2ex}%
+                                     {\normalfont\normalsize\bfseries}}
+\newcommand*\l@subsubsubsection{\@dottedtocline{3}{10.0em}{4.1em}}
+\newcommand*{\subsubsubsectionmark}[1]{}
+\makeatother
+% The package belong to this particular document.
+\usepackage{xcolor}
+\usepackage{listings}
+\definecolor{mGreen}{rgb}{0,0.7,0}
+\definecolor{mGray}{rgb}{0.5,0.5,0.5}
+\definecolor{mPurple}{rgb}{0.5,0,0.35} % Adjusted to a purple shade
+\definecolor{backgroundColour}{rgb}{0.97,0.97,0.97} % Adjusted to a lighter shade
+
+\lstdefinestyle{CStyle}{
+    backgroundcolor=\color{backgroundColour} ,   
+    commentstyle=\color{mGreen},
+    keywordstyle=\color{red},
+    numberstyle=\tiny\color{mGray},
+    stringstyle=\color{mPurple},
+    basicstyle=\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2,
+    language=C
+}
+\begin{document}
+
+\include{title.tex}
+\include{task.tex}
+\tableofcontents
+\pagebreak
+
+\section{Project Summary \& Goals}
+This project is a highly resilient, distributed Geographic Information System (GIS) engineered specifically to manage large-scale, real-time GPS telemetry from the sprawling public transit network of Ho Chi Minh City. By establishing a horizontally scalable infrastructure, the system successfully tackles the complexities of urban mobility, offering precise live tracking of the city's bus fleet, real-time anomaly detection (such as hard braking and route deviations), and dynamic travel time predictions utilizing pre-trained machine learning models (XGBoost and ONNX). The overarching objective is to provide a robust, low-latency ecosystem that bridges edge device data generation, high-throughput stream processing, and immersive, hardware-accelerated frontend visualizations.
+\medskip
+
+\textbf{Project Goals and Constraints:}
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Data Scale Target}: Reliably support 2,100 concurrent edge devices (buses) operating simultaneously, with each vehicle transmitting full telemetry payloads at a strict 3-second interval.
+    \item \textbf{Ingestion Throughput}: Efficiently manage sustained peak ingestion rates ranging from 700 up to 2,500 complex JSON messages per second without dropping packets, utilizing asynchronous queues and edge filtering.
+    \item \textbf{Client Performance Target}: Serve up to 250,000 daily active users with minimal latency, utilizing aggressive backend proxy caching and client-side GPU-rendering (WebGL via deck.gl) to ensure the interactive map remains smooth at 60 frames per second.
+    \item \textbf{Geospatial Scope}: Map and continuously monitor exactly 340 transit routes containing over 10,000 dense waypoints per route, seamlessly interacting with 5,500 physical real-world bus stations.
+    \item \textbf{Predictive Analytics}: Generate highly accurate spatial-temporal travel time forecasts and Bezier curve alternative route interpolations on the fly, comparing live telemetry against historical speed profiles.
+\end{itemize}
+
+\section{System Overview \& Modules}
+\subsection{System Architecture}
+This project is a highly resilient, distributed, and event-driven Geographic Information System (GIS) designed to handle large-scale, real-time GPS telemetry from public transit vehicles (up to 2,100 buses concurrently). It is optimized to manage an ingestion peak of over 2,500 messages per second, ensuring smooth data flow from edge devices to web clients processing real-time graphics computations.
+
+The system is composed of five distinct modules:
+\begin{enumerate}
+    \item \textbf{Edge Simulator (\texttt{Bus/}):} C++ application acting as the telemetry generator on individual buses.
+    \item \textbf{Core Server (\texttt{Server/}):} High-throughput Node.js microservice absorbing writes, executing async processing, and persisting to PostgreSQL.
+    \item \textbf{Website Backend (\texttt{Website/backend/}):} Node.js/Express API Gateway managing end-user queries, auth, and cache serving.
+    \item \textbf{Website Frontend (\texttt{Website/frontend/}):} React, MapLibre, and deck.gl frontend designed to GPU-render tens of thousands of dynamic map points 60 frames per second.
+    \item \textbf{Machine Learning Pipeline (\texttt{ML/}):} Python offline ETL pipeline and XGBoost model training environment generating ONNX models.
+\end{enumerate}
+
+\subsection{Module Breakdown}
+
+\subsubsection{Edge Device Simulator (\texttt{Bus/})}
+The Edge Device Simulator acts as the data generation foundation of the transit system. Its primary role is to simulate the real-world behavior of a massive fleet of public transit vehicles. It generates realistic, event-driven GPS telemetry and edge-computed analytics (such as hard-braking, route progress, and stop arrivals), acting as the distributed sensors of the network. This module ensures the system is subjected to realistic high-throughput data loads, simulating the real-time constraints and network behaviors of edge devices operating in the field.
+
+\textbf{Technologies:} C++, standard threads, TCP Sockets, embedded SQLite.
+
+\begin{itemize}
+    \item \textbf{Lifecycle \& Sub-threads}:
+    \begin{itemize}
+        \item GPS Thread: Generates snapshot data every 3 seconds via an event-first state machine. Computes distance and stop proximity via a precomputed transit graph, applying edge filtering (sending only on significant changes or events).
+        \item Database Thread (SQLite): Operates in WAL mode to buffer coordinates locally (\texttt{db/BUS-<id>.db}). Built to handle offline-first configurations. Contains optimization rules to not bottleneck I/O when simulating thousands of buses.
+        \item Sender Thread: Maintains a long-lived persistent TCP connection sending raw HTTP POST payloads (JSON) to the core server, eliminating socket teardown overhead.
+        \item Receiver Thread: Listens on port 4000 for incoming remote commands (\texttt{STOP}, \texttt{REROUTE}).
+    \end{itemize}
+    \item \textbf{Fleet Manager (\texttt{main.cpp})}: A REPL environment that handles launching pools of vehicles (\texttt{start}, \texttt{stop}, \texttt{list}), distributing ID assignments mathematically.
+\end{itemize}
+
+\subsubsection{Core Server (\texttt{Server/})}
+The Core Server serves as the central nervous system and the primary data ingestion engine of the architecture. Its role is to absorb the massive influx of telemetry data from the edge devices, process it asynchronously, and maintain the absolute state of the transit network. It provides heavy-duty background processing, encompassing data persistence, real-time anomaly detection, trip lifecycle management, and spatial-temporal travel time estimation via integrated machine learning models.
+
+\textbf{Technologies:} Node.js (Express), PostgreSQL (\texttt{pg}), ONNX Runtime (ML), Apache Kafka (\texttt{kafkajs}).
+
+\begin{itemize}
+    \item \textbf{Message Queueing (Apache Kafka)}: A KafkaJS client (\texttt{libs/kafka.js}) is integrated to decouple raw ingestion from heavy processing, establishing a scalable ingestion queue for future stream processing (planned phase).
+    \item \textbf{Ingestion Pipeline (\texttt{processGPS})}: Validates payload formats and returns a fast HTTP 200 to keep bus latency minimized. Dual processing path handles edge-computed fields while retaining legacy backward-compatibility.
+    \item \textbf{Stream Processing Capabilities}:
+    \begin{itemize}
+        \item Tracks trip lifecycles and manages live vehicle state.
+        \item Detects server-only anomalies like GPS loss and off-route, while logging edge-computed anomalies (hard-braking, speeding).
+        \item Computes headways and processes edge-detected stop arrival/departure events.
+        \item ML-backed real-time travel time estimation (XGBoost/ONNX) and Bezier alternative detour routing.
+    \end{itemize}
+    \item \textbf{Data Persistence}:
+    \begin{itemize}
+        \item Raw Telemetry: Stored in \texttt{gps\_telemetry\_raw} representing the absolute history for machine learning and replay.
+        \item Derived Analytics: Stored in specialized tables.
+        \item Live State: The \texttt{gps\_latest} table is continuously upserted per vehicle to represent the "Now" position.
+    \end{itemize}
+\end{itemize}
+
+\subsubsection{Website Backend (\texttt{Website/backend/})}
+The Website Backend bridges the gap between the public-facing user interface and the internal core infrastructure. Its primary role is to protect the Core Server from public internet exposure and excessive load. It achieves this by aggregating client queries, handling user authentication and sessions, and aggressively caching live transit data to serve thousands of concurrent users with minimal latency, falling back gracefully if the internal network experiences downtime.
+
+\textbf{Technologies:} Node.js (Express), MongoDB (\texttt{mongoose}), JWT Auth.
+
+\begin{itemize}
+    \item \textbf{User Authentication}: Backed by a cloud-hosted MongoDB Atlas instance. Manages user registration and login endpoints utilizing \texttt{bcrypt} for password hashing and \texttt{jsonwebtoken} (JWT) for secure session tracking.
+    \item \textbf{Query Aggregation \& Caching}: Proxies real-time metric, live bus, and distance/detour endpoints to the core server. It utilizes an in-memory cache (3s TTL) to drastically reduce load on the core server, serving stale cached data gracefully if the Big Server is temporarily unreachable.
+\end{itemize}
+
+\subsubsection{Website Frontend (\texttt{Website/frontend/})}
+The User Interface is the highly interactive, visual frontend of the system, designed to deliver a smooth and real-time transit tracking experience to end-users. Its role is to transform raw, high-frequency data streams into comprehensible geospatial visualizations. It handles the rendering of thousands of dynamic vehicle markers and complex transit routes on a map, providing users with live arrival forecasts, alternative detour recommendations, and comprehensive search capabilities.
+
+\textbf{Technologies:} React, Vite, TailwindCSS, Zustand, Zod, MapLibre GL JS, deck.gl.
+
+\begin{itemize}
+    \item \textbf{Hardware Acceleration}: Shifts calculation to the client GPU via WebGL using \textbf{deck.gl} (\texttt{IconLayer}), allowing buttery-smooth 60fps animations for real-time map tracking despite rendering $>$2000 active nodes concurrently alongside 10,000 vertices mapping transit routes.
+    \item \textbf{Data Fetching}: Implements a \texttt{useLiveBuses} polling hook (3s interval) to sync with the Website Backend's cached state.
+    \item \textbf{Geospatial Context}: Integrates MapLibre base tiles with drawn OpenStreetMap boundaries representing the exact 340 transit routes and 5,500 bus stations.
+    \item \textbf{Interactive Overlays}: Features dynamic floating panels powered by Zustand for state and Zod for validation, including:
+    \begin{itemize}
+        \item ETAPanel: An ML-backed arrival forecast overlay with confidence ranges and traffic status.
+        \item DetourPanel: A routing comparison panel displaying Bezier detour recommendations and time savings.
+    \end{itemize}
+\end{itemize}
+
+\subsubsection{Machine Learning Pipeline (\texttt{ML/})}
+The Machine Learning Pipeline is an offline processing and training environment that powers the predictive intelligence of the system. Its role is to consume vast amounts of historical telemetry data to train and optimize spatial-temporal models. These models are responsible for real-time travel time estimation and traffic analysis. The pipeline transforms raw data into deployable model artifacts that the Core Server can execute directly, bridging the gap between historical data analysis and real-time operational prediction.
+
+\textbf{Technologies:} Python, XGBoost, Optuna, ONNX.
+
+\begin{itemize}
+    \item \textbf{ETL Pipeline (\texttt{etl/})}: Parses raw historical telemetry, maps spatial grids, and chunks data for training.
+    \item \textbf{Model Training (\texttt{models/})}: Utilizes XGBoost regression with Optuna for hyperparameter optimization to learn spatial-temporal travel times.
+    \item \textbf{Artifact Generation (\texttt{artifacts/})}: Exports optimized models to \texttt{.onnx} format (e.g., \texttt{eta\_model.onnx}) alongside feature metadata to be directly executed by the Node.js server without requiring a Python runtime.
+\end{itemize}
+
+\section{Data Contracts \& Schemas}
+\subsection{Edge Telemetry Payload}
+The C++ Sender transmits JSON over a persistent HTTP POST socket. Below is an example of an edge-computed payload:
+\begin{verbatim}
+{
+  "vehicle_id": "11002",
+  "route": 11,
+  "latitude": 10.7721,
+  "longitude": 106.6579,
+  "speed": 32.5,
+  "heading": 185.3,
+  "timestamp": 1747387200,
+  "edge_anomalies": ["hard_brake"],
+  "dist_along_route": 4250.3,
+  "next_stop_id": 383552890,
+  "dist_to_next_stop": 320.7,
+  "stop_event": "arrival",
+  "stop_event_id": 383552890
+}
+\end{verbatim}
+
+\subsection{API Surface}
+
+\subsubsection{Core Server APIs}
+\begin{longtable}{|p{0.30\textwidth}|p{0.12\textwidth}|p{0.48\textwidth}|}
+\hline
+\textbf{API Path} & \textbf{Method} & \textbf{Description} \\ \hline
+\endfirsthead
+\hline
+\textbf{API Path} & \textbf{Method} & \textbf{Description} \\ \hline
+\endhead
+\path{/api/gps} & POST & Ingestion of raw edge telemetry payloads \\ \hline
+\path{/api/events/live} & GET & Retrieves the latest fleet snapshot from the \texttt{gps\_latest} state \\ \hline
+\path{/api/events/stops} & GET & Retrieves stop event stream \\ \hline
+\path{/api/events/dwell} & GET & Retrieves dwell time statistics \\ \hline
+\path{/api/events/trips} & GET & Retrieves trip logs \\ \hline
+\path{/api/events/speed} & GET & Retrieves speed profiles \\ \hline
+\path{/api/events/headway} & GET & Retrieves headway statistics \\ \hline
+\path{/api/events/anomalies} & GET & Retrieves anomaly history \\ \hline
+\path{/api/events/ingestion-metrics} & GET & Retrieves ingestion KPIs \\ \hline
+\path{/api/estimate} & GET & ML-backed real-time travel time ETA prediction \\ \hline
+\path{/api/distance} & GET & Calculates point-to-point, bus-to-point, or nearest-stop distance \\ \hline
+\path{/api/distance/nearest-bus} & GET & Finds the nearest active bus on a route to a given point \\ \hline
+\path{/api/distance/station-details} & GET & Retrieves details for a specific station \\ \hline
+\path{/api/routes/detour} & GET & Generates Bezier curve alternative route interpolations \\ \hline
+\path{/api/routes/detour/check} & GET & Spatial congestion check for the active routing segment \\ \hline
+\path{/dashboard/} & GET & Full overview (fleet, telemetry, anomalies, trips, stops) \\ \hline
+\path{/dashboard/routes} & GET & Per-route breakdown, health scores, and bunching \\ \hline
+\path{/dashboard/live} & GET & All vehicle positions snapshot \\ \hline
+\path{/dashboard/anomalies} & GET & Anomaly detail panel \\ \hline
+\path{/dashboard/operations} & GET & Dwell times, speed profiles, and headway stats \\ \hline
+\path{/dashboard/ingestion} & GET & Ingestion pipeline KPIs \\ \hline
+\caption{Core Server API Contracts}\\
+\end{longtable}
+
+\subsubsection{Website Backend APIs}
+\begin{longtable}{|p{0.30\textwidth}|p{0.12\textwidth}|p{0.48\textwidth}|}
+\hline
+\textbf{API Path} & \textbf{Method} & \textbf{Description} \\ \hline
+\endfirsthead
+\hline
+\textbf{API Path} & \textbf{Method} & \textbf{Description} \\ \hline
+\endhead
+\path{/api/auth/signup} & POST & Registers a new user via MongoDB and bcrypt \\ \hline
+\path{/api/auth/signin} & POST & Authenticates user and returns a JWT session token \\ \hline
+\path{/api/buses/live} & GET & Proxies live bus data from the Core Server with a 3s in-memory cache \\ \hline
+\path{/api/distance/} & GET & Proxies general distance queries to the Core Server \\ \hline
+\path{/api/distance/nearest-bus} & GET & Proxies nearest-bus calculations \\ \hline
+\path{/api/distance/estimate} & GET & Proxies ML ETA prediction queries \\ \hline
+\path{/api/distance/detour} & GET & Proxies alternative detour path generation \\ \hline
+\path{/api/distance/detour/check} & GET & Proxies spatial congestion checks \\ \hline
+\path{/api/distance/station-details} & GET & Proxies station detail retrieval \\ \hline
+\caption{Website Backend API Contracts}\\
+\end{longtable}
+
+\section{Database Design}
+The system employs both relational and NoSQL databases to divide workloads appropriately.
+
+\subsection{PostgreSQL Database (Core Server)}
+PostgreSQL serves as the primary relational database and core analytics engine for the Big Data Transit System. It is engineered to handle the massive, high-throughput ingestion of real-time GPS telemetry from thousands of concurrent edge devices. This database focuses entirely on write-heavy streaming workloads, storing append-only historical tracking data for machine learning pipelines, maintaining the live spatial state of the entire fleet, and aggregating complex spatial-temporal metrics such as stop dwell times, route deviations, and headway bunching.
+
+\subsubsection*{\texttt{gps\_latest}}
+Stores the most recent telemetry state for each active vehicle, including edge-computed distances.
+\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\hline
+\textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
+\path{vehicle_id} & \path{TEXT} & PK & Unique identifier for the vehicle. \\ \hline
+\path{route} & \path{INTEGER} & & The transit route the vehicle is currently on. \\ \hline
+\path{latitude} & \path{DOUBLE PRECISION} & & The most recent latitude coordinate of the vehicle. \\ \hline
+\path{longitude} & \path{DOUBLE PRECISION} & & The most recent longitude coordinate of the vehicle. \\ \hline
+\path{speed} & \path{DOUBLE PRECISION} & & The current speed of the vehicle. \\ \hline
+\path{heading} & \path{DOUBLE PRECISION} & & The direction the vehicle is traveling. \\ \hline
+\path{updated_at} & \path{TIMESTAMPTZ} & & The time the record was last updated. \\ \hline
+\path{dist_along_route} & \path{DOUBLE PRECISION} & & The calculated distance the vehicle has traveled along the route. \\ \hline
+\path{next_stop_id} & \path{INTEGER} & & The ID of the upcoming transit stop. \\ \hline
+\path{dist_to_next_stop} & \path{DOUBLE PRECISION} & & Distance remaining to reach the next stop. \\ \hline
+\end{longtable}
+
+\subsubsection*{\texttt{gps\_telemetry\_raw}}
+An append-only historical ledger containing all raw telemetry packets for machine learning and auditing.
+\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\hline
+\textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
+\path{id} & \path{BIGSERIAL} & PK & Auto-incrementing unique identifier for the record. \\ \hline
+\path{vehicle_id} & \path{TEXT} & & Identifier of the vehicle. \\ \hline
+\path{route} & \path{INTEGER} & & The transit route ID. \\ \hline
+\path{seq_no} & \path{BIGINT} & & Sequence number for ordering data packets. \\ \hline
+\path{latitude} & \path{DOUBLE PRECISION} & & Latitude coordinate. \\ \hline
+\path{longitude} & \path{DOUBLE PRECISION} & & Longitude coordinate. \\ \hline
+\path{speed} & \path{DOUBLE PRECISION} & & Speed of the vehicle. \\ \hline
+\path{heading} & \path{DOUBLE PRECISION} & & Heading of the vehicle. \\ \hline
+\path{device_timestamp} & \path{TIMESTAMPTZ} & & Time when the telemetry was recorded on the edge device. \\ \hline
+\path{ingested_at} & \path{TIMESTAMPTZ} & & Time when the server received the telemetry. \\ \hline
+\path{quality_flags} & \path{JSONB} & & Extra flags indicating data quality or issues. \\ \hline
+\end{longtable}
+
+\subsubsection*{\texttt{ingest\_metrics\_minute}}
+Aggregated ingestion pipeline performance and throughput KPIs on a per-minute basis.
+\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\hline
+\textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
+\path{id} & \path{BIGSERIAL} & PK & Auto-incrementing unique identifier. \\ \hline
+\path{phase} & \path{TEXT} & & The ingestion phase or environment state. \\ \hline
+\path{bucket_start} & \path{TIMESTAMPTZ} & & The start time of the minute bucket. \\ \hline
+\path{packets_received} & \path{INTEGER} & & Total number of packets received in this minute. \\ \hline
+\path{packets_valid} & \path{INTEGER} & & Number of validated packets. \\ \hline
+\path{packets_invalid} & \path{INTEGER} & & Number of invalid packets rejected. \\ \hline
+\path{processed_ok} & \path{INTEGER} & & Number of packets successfully processed. \\ \hline
+\path{processed_fail} & \path{INTEGER} & & Number of packets that failed processing. \\ \hline
+\path{raw_insert_ok} & \path{INTEGER} & & Number of packets successfully saved to raw storage. \\ \hline
+\path{raw_insert_fail} & \path{INTEGER} & & Number of packets that failed to be saved to raw storage. \\ \hline
+\path{raw_insert_duplicate} & \path{INTEGER} & & Number of duplicate packets detected. \\ \hline
+\path{processing_samples} & \path{INTEGER} & & Number of packets sampled for processing metrics. \\ \hline
+\path{processing_ms_total} & \path{BIGINT} & & Total milliseconds spent processing the sampled packets. \\ \hline
+\path{processing_ms_max} & \path{INTEGER} & & The maximum time in milliseconds spent processing a single packet. \\ \hline
+\path{created_at} & \path{TIMESTAMPTZ} & & When this metric record was created. \\ \hline
+\end{longtable}
+
+\subsubsection*{\texttt{stop\_events}}
+Logs occurrences of vehicles arriving or departing specific transit stops.
+\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\hline
+\textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
+\path{id} & \path{SERIAL} & PK & Unique identifier for the stop event. \\ \hline
+\path{vehicle_id} & \path{TEXT} & & Identifier of the vehicle. \\ \hline
+\path{route} & \path{INTEGER} & & The route ID. \\ \hline
+\path{stop_id} & \path{TEXT} & & The identifier for the stop location. \\ \hline
+\path{event_type} & \path{TEXT} & & Type of the event (e.g., arrival, departure). \\ \hline
+\path{latitude} & \path{DOUBLE PRECISION} & & Latitude where the event occurred. \\ \hline
+\path{longitude} & \path{DOUBLE PRECISION} & & Longitude where the event occurred. \\ \hline
+\path{scheduled_at} & \path{TIMESTAMPTZ} & & Time the vehicle was scheduled to be at the stop. \\ \hline
+\path{occurred_at} & \path{TIMESTAMPTZ} & & Actual time the event occurred. \\ \hline
+\path{delay_seconds} & \path{INTEGER} & & Delay in seconds compared to the schedule. \\ \hline
+\end{longtable}
+
+\subsubsection*{\texttt{dwell\_times}}
+Records the calculated duration a vehicle spent idle at a transit stop.
+\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\hline
+\textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
+\path{id} & \path{SERIAL} & PK & Unique identifier for the dwell time record. \\ \hline
+\path{vehicle_id} & \path{TEXT} & & Identifier of the vehicle. \\ \hline
+\path{route} & \path{INTEGER} & & The route ID. \\ \hline
+\path{stop_id} & \path{TEXT} & & The stop where the vehicle dwelled. \\ \hline
+\path{arrived_at} & \path{TIMESTAMPTZ} & & Timestamp when the vehicle arrived at the stop. \\ \hline
+\path{departed_at} & \path{TIMESTAMPTZ} & & Timestamp when the vehicle departed the stop. \\ \hline
+\path{dwell_seconds} & \path{INTEGER} & & Calculated duration the vehicle spent at the stop in seconds. \\ \hline
+\end{longtable}
+
+\subsubsection*{\texttt{trip\_logs}}
+Tracks the lifecycle of a vehicle's trip from start to finish along a route.
+\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\hline
+\textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
+\path{id} & \path{SERIAL} & PK & Unique identifier for the trip log. \\ \hline
+\path{vehicle_id} & \path{TEXT} & & Identifier of the vehicle. \\ \hline
+\path{route} & \path{INTEGER} & & The route ID. \\ \hline
+\path{started_at} & \path{TIMESTAMPTZ} & & Timestamp when the trip started. \\ \hline
+\path{ended_at} & \path{TIMESTAMPTZ} & & Timestamp when the trip ended. \\ \hline
+\path{duration_seconds} & \path{INTEGER} & & Total duration of the trip in seconds. \\ \hline
+\path{stops_visited} & \path{INTEGER} & & Total number of stops visited during the trip. \\ \hline
+\path{status} & \path{TEXT} & & Current status of the trip (e.g., in\_progress, completed). \\ \hline
+\end{longtable}
+
+\subsubsection*{\texttt{speed\_profiles}}
+Stores segment-by-segment speed analytics between two transit stops.
+\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\hline
+\textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
+\path{id} & \path{SERIAL} & PK & Unique identifier for the speed profile. \\ \hline
+\path{route} & \path{INTEGER} & & The route ID. \\ \hline
+\path{segment_from} & \path{TEXT} & & Identifier of the starting point of the segment. \\ \hline
+\path{segment_to} & \path{TEXT} & & Identifier of the ending point of the segment. \\ \hline
+\path{avg_speed_kmh} & \path{DOUBLE PRECISION} & & Average speed recorded on this segment (km/h). \\ \hline
+\path{min_speed_kmh} & \path{DOUBLE PRECISION} & & Minimum speed recorded on this segment (km/h). \\ \hline
+\path{max_speed_kmh} & \path{DOUBLE PRECISION} & & Maximum speed recorded on this segment (km/h). \\ \hline
+\path{travel_seconds} & \path{INTEGER} & & Time taken to travel the segment in seconds. \\ \hline
+\path{distance_m} & \path{DOUBLE PRECISION} & & Distance of the segment in meters. \\ \hline
+\path{recorded_at} & \path{TIMESTAMPTZ} & & Timestamp when the profile was recorded. \\ \hline
+\path{hour_of_day} & \path{SMALLINT} & & Hour of the day the profile represents. \\ \hline
+\path{day_of_week} & \path{SMALLINT} & & Day of the week the profile represents. \\ \hline
+\end{longtable}
+
+\subsubsection*{\texttt{headway\_records}}
+Tracks the time gap (headway) between consecutive vehicles arriving at the same stop to detect bunching.
+\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\hline
+\textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
+\path{id} & \path{SERIAL} & PK & Unique identifier for the headway record. \\ \hline
+\path{route} & \path{INTEGER} & & The route ID. \\ \hline
+\path{stop_id} & \path{TEXT} & & The stop where the headway is measured. \\ \hline
+\path{vehicle_id} & \path{TEXT} & & Identifier of the current vehicle arriving at the stop. \\ \hline
+\path{prev_vehicle_id} & \path{TEXT} & & Identifier of the previous vehicle that arrived at the stop. \\ \hline
+\path{headway_seconds} & \path{INTEGER} & & Time elapsed since the previous vehicle arrived, in seconds. \\ \hline
+\path{recorded_at} & \path{TIMESTAMPTZ} & & Timestamp when the headway was recorded. \\ \hline
+\end{longtable}
+
+\subsubsection*{\texttt{anomaly\_events}}
+Logs hazard events and infractions such as speeding, hard braking, or deviating off-route.
+\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\hline
+\textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
+\path{id} & \path{SERIAL} & PK & Unique identifier for the anomaly event. \\ \hline
+\path{vehicle_id} & \path{TEXT} & & Identifier of the vehicle involved. \\ \hline
+\path{route} & \path{INTEGER} & & The route ID. \\ \hline
+\path{anomaly_type} & \path{TEXT} & & Type of the anomaly (e.g., hard\_brake, off\_route). \\ \hline
+\path{severity} & \path{TEXT} & & Severity level of the anomaly (e.g., warning, critical). \\ \hline
+\path{latitude} & \path{DOUBLE PRECISION} & & Latitude where the anomaly occurred. \\ \hline
+\path{longitude} & \path{DOUBLE PRECISION} & & Longitude where the anomaly occurred. \\ \hline
+\path{detail} & \path{JSONB} & & Additional JSON details regarding the anomaly context. \\ \hline
+\path{occurred_at} & \path{TIMESTAMPTZ} & & Timestamp when the anomaly occurred. \\ \hline
+\end{longtable}
+
+\subsubsection*{\texttt{stops}}
+Defines the geographical points and sequencing of transit stops along routes.
+\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\hline
+\textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
+\path{stop_id} & \path{TEXT} & PK & Identifier of the stop. \\ \hline
+\path{route} & \path{INTEGER} & PK & Route ID associated with the stop. \\ \hline
+\path{latitude} & \path{DOUBLE PRECISION} & & Latitude of the stop. \\ \hline
+\path{longitude} & \path{DOUBLE PRECISION} & & Longitude of the stop. \\ \hline
+\path{sequence} & \path{INTEGER} & & Order of the stop along the route. \\ \hline
+\end{longtable}
+
+\subsection{MongoDB Database (Website Backend)}
+While PostgreSQL acts as the core analytics engine for processing massive transit telemetry streams, the MongoDB Database acts as the persistence layer for the Website Backend. It is specifically designed to manage stateful interactions decoupled from the data pipeline, including secure user authentication, persistent session management, and the tracking of end-user preferences, historical searches, and saved actions.
+
+\subsubsection*{\texttt{Users Collection}}
+Secures user registration, profiles, and login credentials utilizing \texttt{bcrypt} hashing.
+\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\hline
+\textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
+\path{id} & \path{ObjectId} & PK & Unique identifier automatically generated by MongoDB. \\ \hline
+\path{username} & \path{String} & Unique & Login username for system access. \\ \hline
+\path{email} & \path{String} & Unique & User's contact email address. \\ \hline
+\path{hashedPassword} & \path{String} & & Encrypted password for authentication. \\ \hline
+\path{displayName} & \path{String} & & Full name or display name of the user. \\ \hline
+\path{avatarUrl} & \path{String} & & URL pointing to the user's avatar image. \\ \hline
+\path{avatarId} & \path{String} & & Identifier for the avatar resource. \\ \hline
+\path{phone} & \path{String} & Sparse & User's contact phone number. \\ \hline
+\path{createdAt} & \path{Date} & & Automatically generated timestamp of document creation. \\ \hline
+\path{updatedAt} & \path{Date} & & Automatically generated timestamp of last update. \\ \hline
+\end{longtable}
+
+\subsubsection*{\texttt{Sessions Collection}}
+Manages persistent user authentication sessions utilizing JSON Web Tokens (JWT) and refresh tokens.
+\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\hline
+\textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
+\path{id} & \path{ObjectId} & PK & Unique identifier automatically generated by MongoDB. \\ \hline
+\path{userId} & \path{ObjectId} & FK & Reference to the authenticated User document. \\ \hline
+\path{refreshToken} & \path{String} & Unique & Secure token used to refresh active sessions. \\ \hline
+\path{expiresAt} & \path{Date} & TTL & Expiration date of the session token. Automatically deletes document when reached (TTL index). \\ \hline
+\path{createdAt} & \path{Date} & & Automatically generated timestamp of document creation. \\ \hline
+\path{updatedAt} & \path{Date} & & Automatically generated timestamp of last update. \\ \hline
+\end{longtable}
+
+\subsubsection*{\texttt{UserActions Collection}}
+Responsible for saving end-user related actions (such as historical searches, preferences, and session data) entirely separated from the heavy transit telemetry workloads.
+\begin{longtable}{|p{0.22\textwidth}|p{0.20\textwidth}|p{0.10\textwidth}|p{0.40\textwidth}|}
+\hline
+\textbf{Attribute} & \textbf{Data Type} & \textbf{Key} & \textbf{Description} \\ \hline
+\path{id} & \path{ObjectId} & PK & Unique identifier automatically generated by MongoDB. \\ \hline
+\path{userId} & \path{ObjectId} & FK & Reference to the User document who performed the action. \\ \hline
+\path{actionType} & \path{String} & Index & The type of action (e.g., ``search'', ``save\_route'', ``update\_preference''). \\ \hline
+\path{payload} & \path{Object} & & Flexible embedded document storing the specific details of the action (e.g., search query, route ID, preference settings). \\ \hline
+\path{createdAt} & \path{Date} & Index & Automatically generated timestamp when the action occurred. \\ \hline
+\end{longtable}
+
+\section{End-to-End Data Flow}
+\begin{enumerate}
+    \item \textbf{Edge Generation (\texttt{Bus/}):} The C++ Edge Simulator computes vehicle state every 3 seconds utilizing an event-first speed simulator. It calculates distances along the transit graph, detects stop proximity, and identifies potential edge anomalies (e.g., hard braking, speeding).
+    \item \textbf{Edge Filtering \& Encoding:} The local \texttt{Bus} instance evaluates the state change. If the packet is deemed redundant (no movement or significant event), it is dropped. Otherwise, the data is structured into a complete JSON telemetry payload.
+    \item \textbf{Transmission to Core Server:} The C++ Sender pushes the JSON payload by making an HTTP \texttt{POST} request to the \texttt{/api/gps} endpoint on the Core Server. It utilizes a long-lived persistent TCP connection to eliminate socket creation overhead.
+    \item \textbf{Ingestion \& Immediate Acknowledgment:} The Core server receives the \texttt{POST /api/gps} request and immediately returns an HTTP \texttt{200 OK} response to the edge device, decoupling the bus from database insertion latency.
+    \item \textbf{Message Queueing (Apache Kafka):} In the background, the server asynchronously publishes the telemetry payload to an Apache Kafka topic. Kafka acts as a scalable, high-throughput message broker, fully decoupling raw ingestion from the heavy downstream processing pipeline and ensuring resiliency during peak traffic spikes.
+    \item \textbf{Asynchronous Validation \& Persistence:} Consuming from the processing pipeline, the server validates the payload's geographical bounds. It appends the data to the \path{gps_telemetry_raw} PostgreSQL table (for ML training) and performs an upsert on the \texttt{gps\_latest} table to reflect the fleet's current live state.
+    \item \textbf{Server-Side Analytics Processing:} The core pipeline executes secondary analysis: processing edge-provided stop events into \texttt{dwell\_times}, calculating headways, detecting server-side anomalies (e.g., GPS loss, off-route deviations), and updating trip lifecycles.
+    \item \textbf{Client Polling (Frontend to Backend):} As users view the React \texttt{Website/frontend/}, the UI initiates an HTTP \texttt{GET} request to the Website Backend via \texttt{/api/buses/live} every 3 seconds to retrieve the latest fleet snapshot.
+    \item \textbf{Backend Proxy \& Caching (\texttt{Website/backend/}):} The Backend receives the \texttt{GET /api/buses/live} request. It serves the result from a fast 3-second TTL in-memory cache. If the cache is stale, it proxies the request down to the Core Server's \texttt{GET /api/events/live} endpoint.
+    \item \textbf{Advanced Insights Requests:} User interactions trigger specialized \texttt{GET} requests through the Backend proxy: \texttt{/api/distance/estimate} calls the ONNX ML model for travel time prediction, and \texttt{/api/distance/detour} invokes Bezier curve generation for alternative routes.
+    \item \textbf{GPU Rendering \& Visual Consumption:} Upon receiving the JSON responses, the React application updates its Zustand state. MapLibre GL supplies the base map, while deck.gl uses the data to render 60fps WebGL visualizations of moving vehicles, dynamic detour comparisons, and predictive ETA floating panels.
+\end{enumerate}
+
+\section{Future Architectural Enhancements}
+To further scale the system and support more advanced real-time analytics, two major architectural additions are planned for the data flow.
+\medskip
+
+\textbf{In-Memory Caching (Redis)}
+
+Redis will be integrated into the architecture as an ultra-fast, volatile data store positioned directly between the Core Server's ingestion pipeline and the live read queries. Currently, the Website Backend proxies live location requests to PostgreSQL's \texttt{gps\_latest} table. By introducing Redis, the system will achieve $O(1)$ read performance for live vehicle coordinates. Within the data flow, as telemetry streams in via Kafka, the Core Server will simultaneously persist the raw data to PostgreSQL for long-term durability while actively updating the Redis cache for immediate access. This dual-write strategy will drastically reduce the read load on the relational database during periods of high client traffic.
+\medskip
+
+\textbf{Batch Processing \& Feature Engineering (Apache Spark)}
+
+To enhance the machine learning pipeline, Apache Spark will be positioned downstream from the \path{gps_telemetry_raw} PostgreSQL table, operating entirely decoupled from the real-time ingestion path. While the current pipeline utilizes standard Python scripts for ETL, Apache Spark will be implemented to handle offline batch feature generation at a distributed scale. Functionally, Spark will periodically extract massive volumes of historical telemetry from the database, apply distributed computing transformations to generate complex spatial-temporal features, and feed this structured data directly into the XGBoost training pipeline. This infrastructure upgrade ensures that the predictive models remain highly performant and accurate as the historical dataset grows exponentially.
+
+\end{document}
